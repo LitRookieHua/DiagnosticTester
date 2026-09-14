@@ -41,3 +41,55 @@ def encode(payload: bytes, is_fd: bool) -> list[bytes]:
         frames.append(bytes([0x20 | (seq & 0x0F)]) + chunk)
         seq = (seq + 1) & 0x0F
     return frames
+
+
+class RxAssembler:
+    """SF/FF/CF 重组：feed 每次给一帧 data，完整时返回 payload，否则 None。"""
+
+    def __init__(self, is_fd: bool):
+        self.is_fd = is_fd
+        self.reset()
+
+    def reset(self):
+        self.buf = bytearray()
+        self.total = None
+        self.next_seq = None
+        self.last_ts = None
+
+    def expired(self, now: float, n_cr_s: float) -> bool:
+        return (self.total is not None and self.last_ts is not None
+                and now - self.last_ts > n_cr_s)
+
+    def feed(self, data: bytes, now: float):
+        if not data:
+            return None
+        pci = data[0] >> 4
+        if pci == SF:
+            if self.is_fd and data[0] == 0x00:  # 2 字节转义形式（FD 下 8-62 字节）
+                ln = data[1]
+                return bytes(data[2:2 + ln])
+            ln = data[0] & 0x0F  # 经典 1 字节 PCI（≤7 字节）
+            return bytes(data[1:1 + ln])
+        if pci == FF:
+            self.total = ((data[0] & 0x0F) << 8) | data[1]
+            self.buf = bytearray(data[2:] if self.is_fd else data[2:8])
+            self.next_seq = 1
+            self.last_ts = now
+            return None
+        if pci == CF:
+            if self.total is None:
+                return None  # 无首帧，丢弃
+            seq = data[0] & 0x0F  # CF 一律 1 字节 PCI + 4 位序号（FD 每帧 63 字节）
+            chunk = data[1:]
+            if seq != self.next_seq:
+                self.reset()  # 丢序，整个报文作废
+                return None
+            self.buf += chunk
+            self.next_seq = (seq + 1) & 0x0F
+            self.last_ts = now
+            if len(self.buf) >= self.total:
+                payload = bytes(self.buf[:self.total])
+                self.reset()
+                return payload
+            return None
+        return None
