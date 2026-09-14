@@ -161,3 +161,67 @@ def judge(step: Step, r: UdsResult) -> str:
     if r.response is not None and r.response.startswith(step.expect):
         return "PASS"
     return "FAIL"
+
+
+def run_flow(cfg: dict, driver, run_dir):
+    """执行流程，返回汇总 dict（total/pass/fail/timeout）。driver 为已就绪的 CanDriver。"""
+    from recorder import Recorder
+
+    diag, timing = cfg["diagnostic"], cfg["timing"]
+    rec = Recorder(run_dir)
+
+    def tap(frame, is_rx):
+        rec.frame(frame, is_rx)
+
+    def log(msg):
+        rec.event(msg)
+
+    transport = IsoTpTransport(driver, tx_id=diag["request_id"], rx_id=diag["response_id"],
+                               is_fd=cfg["can"]["fd"], tap=tap, log=log)
+    transport.start()
+    uds = UdsClient(transport, p2_ms=timing["p2_ms"], p2star_ms=timing["p2star_ms"], log=log)
+    rec.event(f"流程开始：共 {len(cfg['steps'])} 步，on_fail={cfg['on_fail']}")
+
+    counters = {"total": 0, "pass": 0, "fail": 0, "timeout": 0}
+    try:
+        for i, step in enumerate(cfg["steps"], 1):
+            counters["total"] += 1
+            if step.addressing == "functional":
+                frames = encode(step.request, cfg["can"]["fd"])
+                for f in frames:
+                    frame = CanFrame(diag["functional_id"], f,
+                                     is_fd=cfg["can"]["fd"], bitrate_switch=cfg["can"]["fd"])
+                    driver.send(frame)
+                    rec.frame(frame, False)
+                rec.event(f"[{i}] {step.name} 功能寻址发送 {step.request.hex().upper()}（不等待响应）")
+                counters["pass"] += 1
+                time.sleep((step.delay_after_ms if step.delay_after_ms is not None
+                            else timing["step_delay_ms"]) / 1000.0)
+                continue
+
+            log(f"[{i}] {step.name} 发送 {step.request.hex().upper()}"
+                f"（期望 {step.expect.hex().upper() if step.expect else '无'}）")
+            result = uds.request(step.request, timeout_ms=step.timeout_ms)
+            verdict = judge(step, result)
+            rec.step(i, step.name, step.addressing, step.request.hex().upper(), result, verdict)
+            log(f"[{i}] {step.name} -> "
+                f"{result.response.hex().upper() if result.response else '无响应'}"
+                f" 判定 {verdict}"
+                + (f"（NRC 0x{result.nrc:02X}）" if result.nrc is not None else ""))
+            if verdict == "PASS":
+                counters["pass"] += 1
+            elif verdict == "FAIL":
+                counters["fail"] += 1
+            else:
+                counters["timeout"] += 1
+            if verdict != "PASS" and cfg["on_fail"] == "abort":
+                log("步骤失败且 on_fail=abort，中止流程")
+                break
+            time.sleep((step.delay_after_ms if step.delay_after_ms is not None
+                        else timing["step_delay_ms"]) / 1000.0)
+    finally:
+        transport.stop()
+        rec.event(f"流程结束：PASS {counters['pass']} / FAIL {counters['fail']}"
+                  f" / TIMEOUT {counters['timeout']} / 共 {counters['total']}")
+        rec.close()
+    return counters
