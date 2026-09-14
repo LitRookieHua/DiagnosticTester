@@ -31,7 +31,10 @@ class Step:
 
 
 def parse_hex_bytes(s, where: str) -> bytes:
-    s = str(s).replace(" ", "")
+    if not isinstance(s, str):
+        raise ConfigError(f"{where}: 应为引号包裹的十六进制字符串（如 \"1003\"），"
+                          f"当前是 {type(s).__name__}: {s!r}")
+    s = s.replace(" ", "")
     if not HEX_RE.match(s) or len(s) % 2:
         raise ConfigError(f"{where}: '{s}' 不是合法十六进制字节串")
     return bytes.fromhex(s)
@@ -40,6 +43,8 @@ def parse_hex_bytes(s, where: str) -> bytes:
 def parse_id(v, where: str) -> int:
     if v is None:
         raise ConfigError(f"{where}: 缺失")
+    if isinstance(v, bool):
+        raise ConfigError(f"{where}: 应为 CAN ID")
     if isinstance(v, int):
         return v
     s = str(v).strip().lower().replace("0x", "")
@@ -47,6 +52,16 @@ def parse_id(v, where: str) -> int:
         return int(s, 16)
     except ValueError:
         raise ConfigError(f"{where}: '{v}' 不是合法 CAN ID")
+
+
+def _check_num(d, k, path, min_=0):
+    v = d.get(k)
+    if v is None:
+        return
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ConfigError(f"{path}.{k}: 应为数字，当前是 {type(v).__name__}: {v!r}")
+    if v < min_:
+        raise ConfigError(f"{path}.{k}: 不能小于 {min_}，当前 {v}")
 
 
 def load_config(path, need_steps: bool = True) -> dict:
@@ -59,6 +74,9 @@ def load_config(path, need_steps: bool = True) -> dict:
         raise ConfigError(f"YAML 语法错误：{e}")
     if not isinstance(raw, dict):
         raise ConfigError("配置根节点必须是映射")
+    unknown = set(raw) - {"can", "diagnostic", "timing", "steps", "on_fail"}
+    if unknown:
+        raise ConfigError(f"未知顶层字段 {sorted(unknown)}")
 
     can = raw.get("can")
     if not isinstance(can, dict):
@@ -66,7 +84,11 @@ def load_config(path, need_steps: bool = True) -> dict:
     for k in ("device", "channel", "fd", "baudrate"):
         if k not in can:
             raise ConfigError(f"can.{k}: 缺失")
+    if not isinstance(can["fd"], bool):
+        raise ConfigError("can.fd: 应为 true/false")
     can.setdefault("data_baudrate", 2000000)
+    for k in ("channel", "baudrate", "data_baudrate"):
+        _check_num(can, k, "can")
 
     diag = raw.get("diagnostic")
     if not isinstance(diag, dict):
@@ -78,7 +100,13 @@ def load_config(path, need_steps: bool = True) -> dict:
     if diag.get("functional_id") is not None:
         diag["functional_id"] = parse_id(diag["functional_id"], "diagnostic.functional_id")
 
-    timing = raw.get("timing") or {}
+    timing = raw.get("timing")
+    if timing is None:
+        timing = {}
+    if not isinstance(timing, dict):
+        raise ConfigError("timing: 必须是映射")
+    for k in ("p2_ms", "p2star_ms", "step_delay_ms"):
+        _check_num(timing, k, "timing")
     timing.setdefault("p2_ms", 50)
     timing.setdefault("p2star_ms", 5000)
     timing.setdefault("step_delay_ms", 100)
@@ -102,6 +130,8 @@ def load_config(path, need_steps: bool = True) -> dict:
             for k in ("name", "request"):
                 if k not in s:
                     raise ConfigError(f"{where}.{k}: 缺失")
+            for k in ("timeout_ms", "delay_after_ms"):
+                _check_num(s, k, where)
             request = parse_hex_bytes(s["request"], f"{where}.request")
             expect = (parse_hex_bytes(s["expect"], f"{where}.expect")
                       if s.get("expect") is not None else None)
