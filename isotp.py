@@ -123,8 +123,8 @@ class IsoTpTransport:
                  tap=None, log=None):
         if not 0 <= fc_stmin_ms <= 0x7F:
             raise ValueError(f"fc_stmin_ms 必须在 0-0x7F 范围内：{fc_stmin_ms}")
-        if fc_bs < 0:
-            raise ValueError(f"fc_bs 必须 >= 0：{fc_bs}")
+        if not 0 <= fc_bs <= 0xFF:
+            raise ValueError(f"fc_bs 必须在 0-0xFF 范围内：{fc_bs}")
         self.driver = driver
         self.tx_id = tx_id
         self.rx_id = rx_id
@@ -207,12 +207,14 @@ class IsoTpTransport:
                 if send_fc:
                     self._send_frame(bytes([0x30, self.fc_bs, self.fc_stmin_ms]))
             except Exception as e:
-                # tap/log/driver 异常不能杀死接收线程：记录后继续跑
+                # tap/log/driver 异常不能杀死接收线程：记录后继续跑。
+                # 加退避，防止 recv 持续抛异常（如硬件故障）时空转刷日志
                 self._pump_error = e
                 try:
                     self.log(f"ISO-TP pump 异常：{e!r}")
                 except Exception:
                     pass
+                time.sleep(0.05)
 
     def _send_frame(self, data: bytes):
         frame = CanFrame(self.tx_id, data, is_fd=self.is_fd, bitrate_switch=self.is_fd)
