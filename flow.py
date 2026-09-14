@@ -15,6 +15,9 @@ from uds import UdsClient, UdsResult
 
 HEX_RE = re.compile(r"^[0-9A-Fa-f]+$")
 STEP_FIELDS = {"name", "request", "expect", "timeout_ms", "delay_after_ms", "addressing"}
+CAN_FIELDS = {"device", "channel", "fd", "baudrate", "data_baudrate"}
+DIAGNOSTIC_FIELDS = {"request_id", "response_id", "functional_id"}
+TIMING_FIELDS = {"p2_ms", "p2star_ms", "step_delay_ms"}
 
 
 class ConfigError(Exception):
@@ -47,12 +50,24 @@ def parse_id(v, where: str) -> int:
     if isinstance(v, bool):
         raise ConfigError(f"{where}: 应为 CAN ID")
     if isinstance(v, int):
-        return v
-    s = str(v).strip().lower().replace("0x", "")
-    try:
-        return int(s, 16)
-    except ValueError:
-        raise ConfigError(f"{where}: '{v}' 不是合法 CAN ID")
+        i = v
+    else:
+        s = str(v).strip().lower().replace("0x", "")
+        try:
+            i = int(s, 16)
+        except ValueError:
+            raise ConfigError(f"{where}: '{v}' 不是合法 CAN ID")
+    if not 0x001 <= i <= 0x7FF:
+        raise ConfigError(f"{where}: CAN ID 超出 11 位标准帧范围 0x001-0x7FF：0x{i:X}")
+    return i
+
+
+def _reject_unknown_keys(section: dict, allowed: set, section_name: str):
+    """嵌套节未知键校验（与 steps 的未知字段校验同款）：拼错的键必须报错，
+    不能静默忽略后回落默认值。"""
+    unknown = sorted(set(section) - allowed)
+    if unknown:
+        raise ConfigError("、".join(f"{section_name}.{k}" for k in unknown) + ": 未知字段")
 
 
 def _check_num(d, k, path, min_=0):
@@ -82,6 +97,7 @@ def load_config(path, need_steps: bool = True) -> dict:
     can = raw.get("can")
     if not isinstance(can, dict):
         raise ConfigError("can: 缺失或不是映射")
+    _reject_unknown_keys(can, CAN_FIELDS, "can")
     for k in ("device", "channel", "fd", "baudrate"):
         if k not in can:
             raise ConfigError(f"can.{k}: 缺失")
@@ -94,6 +110,7 @@ def load_config(path, need_steps: bool = True) -> dict:
     diag = raw.get("diagnostic")
     if not isinstance(diag, dict):
         raise ConfigError("diagnostic: 缺失或不是映射")
+    _reject_unknown_keys(diag, DIAGNOSTIC_FIELDS, "diagnostic")
     for k in ("request_id", "response_id"):
         if k not in diag:
             raise ConfigError(f"diagnostic.{k}: 缺失")
@@ -106,6 +123,7 @@ def load_config(path, need_steps: bool = True) -> dict:
         timing = {}
     if not isinstance(timing, dict):
         raise ConfigError("timing: 必须是映射")
+    _reject_unknown_keys(timing, TIMING_FIELDS, "timing")
     for k in ("p2_ms", "p2star_ms", "step_delay_ms"):
         _check_num(timing, k, "timing")
     timing.setdefault("p2_ms", 50)

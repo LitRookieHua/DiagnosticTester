@@ -94,6 +94,38 @@ def test_unknown_top_level_key(tmp_path):
     assert "on_fial" in str(e.value)
 
 
+def test_unknown_can_key(tmp_path):
+    # 拼错 baudrate → baudratee：必须报未知字段，不能静默忽略后再报缺失
+    text = BASE.replace("baudrate: 500000", "baudratee: 500000")
+    with pytest.raises(ConfigError) as e:
+        load_config(write(tmp_path, text))
+    assert "can.baudratee" in str(e.value)
+    assert "未知" in str(e.value)
+
+
+def test_unknown_diagnostic_key(tmp_path):
+    # 拼错 functional_id：不能静默忽略，否则功能寻址步骤运行期才暴露
+    text = BASE.replace("functional_id: 0x7DF", "functionl_id: 0x7DF")
+    with pytest.raises(ConfigError) as e:
+        load_config(write(tmp_path, text))
+    assert "diagnostic.functionl_id" in str(e.value)
+
+
+def test_unknown_timing_key(tmp_path):
+    # 拼错 p2star_ms → p2s_ms：不能静默回落默认值，必须报未知字段
+    text = BASE.replace("p2star_ms: 1000", "p2s_ms: 100")
+    with pytest.raises(ConfigError) as e:
+        load_config(write(tmp_path, text))
+    assert "timing.p2s_ms" in str(e.value)
+
+
+def test_id_out_of_11bit_range(tmp_path):
+    text = BASE.replace("request_id: 0x70C", "request_id: 0x800")
+    with pytest.raises(ConfigError) as e:
+        load_config(write(tmp_path, text))
+    assert "11 位" in str(e.value)
+
+
 def test_bad_addressing(tmp_path):
     text = BASE.replace('request: "1003"', 'request: "1003", addressing: broadcast')
     with pytest.raises(ConfigError) as e:

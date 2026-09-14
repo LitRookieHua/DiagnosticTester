@@ -263,6 +263,8 @@ class IsoTpTransport:
                 data = self._fcq.get(timeout=remain)
             except queue.Empty:
                 raise TimeoutError("等待流控帧 FC 超时（N_Bs）")
+            if len(data) < 2:
+                continue  # 畸形短 FC（连 BS 字节都没有）：丢弃继续等
             if data[0] == 0x30:
                 bs = data[1]
                 stmin_s = _decode_stmin(data[2] if len(data) > 2 else 0)

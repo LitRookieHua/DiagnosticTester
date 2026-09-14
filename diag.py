@@ -38,9 +38,16 @@ def make_driver(cfg):
 
 
 def new_run_dir(prefix: str) -> Path:
-    d = LOGS_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    """按时间戳建运行目录；同秒重复运行追加 _1/_2… 后缀，避免互相覆盖。"""
+    base = LOGS_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    for i in range(100):
+        d = base if i == 0 else base.with_name(f"{base.name}_{i}")
+        try:
+            d.mkdir(parents=True, exist_ok=False)
+            return d
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"运行目录碰撞超过 100 个候选：{base}")
 
 
 def cmd_run(args):
