@@ -65,12 +65,17 @@ class RxAssembler:
             return None
         pci = data[0] >> 4
         if pci == SF:
+            self.reset()  # SF 中断重组：清残留状态，防止后续游离 CF 拼出错误报文
             if self.is_fd and data[0] == 0x00:  # 2 字节转义形式（FD 下 8-62 字节）
+                if len(data) < 2:
+                    return None  # 畸形帧守卫
                 ln = data[1]
                 return bytes(data[2:2 + ln])
             ln = data[0] & 0x0F  # 经典 1 字节 PCI（≤7 字节）
             return bytes(data[1:1 + ln])
         if pci == FF:
+            if len(data) < 2:
+                return None  # 畸形帧守卫
             self.total = ((data[0] & 0x0F) << 8) | data[1]
             self.buf = bytearray(data[2:] if self.is_fd else data[2:8])
             self.next_seq = 1

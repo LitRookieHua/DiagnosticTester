@@ -52,3 +52,21 @@ def test_padding_sliced_by_total():
 def test_cf_without_ff_ignored():
     a = RxAssembler(False)
     assert a.feed(bytes([0x21]) + b"1234567", 0.0) is None
+
+
+def test_malformed_1byte_fd_zero():
+    a = RxAssembler(True)
+    assert a.feed(b"\x00", 0.0) is None
+
+
+def test_malformed_1byte_ff():
+    for is_fd in (False, True):
+        a = RxAssembler(is_fd)
+        assert a.feed(b"\x10", 0.0) is None
+
+
+def test_sf_mid_reassembly_resets():
+    a = RxAssembler(False)
+    a.feed(bytes([0x10, 8]) + b"123456", 0.0)
+    assert a.feed(bytes([3]) + b"abc", 1.0) == b"abc"
+    assert a.feed(bytes([0x21]) + b"def", 2.0) is None  # 状态已复位，游离 CF 丢弃
