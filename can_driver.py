@@ -166,12 +166,15 @@ class ZlgCanDriver(CanDriver):
             if frame.is_fd:
                 msgs = (z.ZCAN_TransmitFD_Data * 1)()
                 m = msgs[0]
+                dlc = len_to_dlc(len(frame.data))
+                wire_len = dlc_to_len(dlc)
+                data = frame.data + bytes(wire_len - len(frame.data))  # 补齐到 DLC 合法长度，避免未初始化字节上线
                 _set(m, 0, "SendType", "send_type")
                 _set(m, 1 if frame.bitrate_switch else 0, "BRS", "brs")
-                _set(m, len_to_dlc(len(frame.data)), "DLC", "dlc")
+                _set(m, dlc, "DLC", "dlc")
                 _set(m, frame.can_id, "ID", "id")
                 arr = _get(m, "Data", "data")
-                for i, b in enumerate(frame.data):
+                for i, b in enumerate(data):
                     arr[i] = b
                 if z.ZCAN_TransmitFD(self._dev, self.channel, msgs, 1) != 1:
                     raise RuntimeError("CAN FD 发送失败")
