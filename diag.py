@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 from flow import ConfigError, load_config, parse_hex_bytes, run_flow
-from isotp import IsoTpTransport
+from isotp import IsoTpError, IsoTpTransport
 from recorder import Recorder
 from uds import UdsClient
 
@@ -24,7 +25,9 @@ LOGS_DIR = TOOLS_DIR / "logs"
 def make_driver(cfg):
     can_cfg = cfg["can"]
     if can_cfg["device"] == "mock":
-        sys.path.insert(0, str(TOOLS_DIR / "tests"))
+        tests_dir = str(TOOLS_DIR / "tests")
+        if tests_dir not in sys.path:
+            sys.path.insert(0, tests_dir)
         from mock_driver import MockCanDriver
         return MockCanDriver()
     from can_driver import ZlgCanDriver
@@ -45,10 +48,12 @@ def cmd_run(args):
     driver = make_driver(cfg)
     run_dir = new_run_dir(Path(args.config).stem)
     print(f"运行目录：{run_dir}")
-    counters = run_flow(cfg, driver, run_dir)
-    driver.close()
+    try:
+        counters = run_flow(cfg, driver, run_dir)
+    finally:
+        driver.close()
     print(f"PASS {counters['pass']} / FAIL {counters['fail']} "
-          f"/ TIMEOUT {counters['timeout']} / 共 {counters['total']}")
+          f"/ TIMEOUT {counters['timeout']} / 共 {counters['total']}/{len(cfg['steps'])}")
     return 0 if counters["fail"] == 0 and counters["timeout"] == 0 else 1
 
 
@@ -61,34 +66,45 @@ def build_transport(cfg, driver, rec):
     return t
 
 
-def cmd_probe(args):
-    cfg = load_config(args.config, need_steps=False)
-    request = parse_hex_bytes(args.request, "request")
+@contextmanager
+def open_session(cfg, prefix):
+    """probe/chat 共用的会话资源：driver → 记录器 → 传输 → UDS 客户端，退出时逆序收尾。
+
+    run_flow 自管 transport（与步骤执行耦合），cmd_run 不走此入口。
+    """
     driver = make_driver(cfg)
-    rec = Recorder(new_run_dir("probe"))
-    transport = build_transport(cfg, driver, rec)
-    uds = UdsClient(transport, p2_ms=cfg["timing"]["p2_ms"],
-                    p2star_ms=cfg["timing"]["p2star_ms"], log=rec.event)
+    rec = Recorder(new_run_dir(prefix))
+    transport = None
     try:
-        r = uds.request(request)
-        print(f"响应：{r.response.hex().upper() if r.response else '超时无响应'}"
-              + (f"（NRC 0x{r.nrc:02X}）" if r.nrc is not None else ""))
-        return 0
+        transport = build_transport(cfg, driver, rec)
+        uds = UdsClient(transport, p2_ms=cfg["timing"]["p2_ms"],
+                        p2star_ms=cfg["timing"]["p2star_ms"], log=rec.event)
+        yield driver, rec, transport, uds
     finally:
-        transport.stop()
+        if transport is not None:
+            transport.stop()
         rec.close()
         driver.close()
 
 
+def cmd_probe(args):
+    cfg = load_config(args.config, need_steps=False)
+    request = parse_hex_bytes(args.request, "request")
+    with open_session(cfg, "probe") as (_driver, _rec, _transport, uds):
+        r = uds.request(request)
+        print(f"响应：{r.response.hex().upper() if r.response else '超时无响应'}"
+              + (f"（NRC 0x{r.nrc:02X}）" if r.nrc is not None else ""))
+        if r.timeout:
+            return 1  # ECU 无响应（P2 超时）
+        if r.nrc is not None:
+            return 2  # 收到负响应
+        return 0
+
+
 def cmd_chat(args):
     cfg = load_config(args.config, need_steps=False)
-    driver = make_driver(cfg)
-    rec = Recorder(new_run_dir("chat"))
-    print(f"交互模式（日志：{rec.run_dir}）。输入十六进制请求如 22F195，:q 退出")
-    transport = build_transport(cfg, driver, rec)
-    uds = UdsClient(transport, p2_ms=cfg["timing"]["p2_ms"],
-                    p2star_ms=cfg["timing"]["p2star_ms"], log=rec.event)
-    try:
+    with open_session(cfg, "chat") as (_driver, rec, _transport, uds):
+        print(f"交互模式（日志：{rec.run_dir}）。输入十六进制请求如 22F195，:q 退出")
         while True:
             try:
                 line = input("diag> ").strip()
@@ -104,7 +120,12 @@ def cmd_chat(args):
                 print(f"输入错误：{e}")
                 continue
             rec.event(f"手动请求 {request.hex().upper()}")
-            r = uds.request(request)
+            try:
+                r = uds.request(request)
+            except (TimeoutError, IsoTpError, RuntimeError, ValueError) as e:
+                # 单条请求失败（如等流控帧超时）不结束会话，可继续输入
+                print(f"请求失败：{e}")
+                continue
             if r.timeout:
                 print("超时无响应")
             else:
@@ -112,10 +133,6 @@ def cmd_chat(args):
                       + (f"（NRC 0x{r.nrc:02X}）" if r.nrc is not None else "")
                       + f"  {r.elapsed_ms:.0f}ms")
         return 0
-    finally:
-        transport.stop()
-        rec.close()
-        driver.close()
 
 
 def main(argv=None):
@@ -141,6 +158,10 @@ def main(argv=None):
     except ConfigError as e:
         print(f"配置错误：{e}", file=sys.stderr)
         return 2
+    except (TimeoutError, RuntimeError, IsoTpError) as e:
+        # 运行期异常（驱动/传输失败等），与步骤 FAIL 的退出码 1 区分
+        print(f"错误：{e}", file=sys.stderr)
+        return 3
     except KeyboardInterrupt:
         print("\n已中断。已完成的记录见 logs/ 下对应运行目录的 run.log")
         return 130

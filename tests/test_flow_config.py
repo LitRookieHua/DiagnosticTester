@@ -103,10 +103,19 @@ def test_bad_addressing(tmp_path):
 
 def test_functional_requires_id(tmp_path):
     text = BASE.replace("functional_id: 0x7DF", "")
-    text = text.replace('request: "1003"', 'request: "1003", addressing: functional')
+    text = text.replace('request: "1003", expect: "5003"',
+                        'request: "1003", addressing: functional')
     with pytest.raises(ConfigError) as e:
         load_config(write(tmp_path, text))
     assert "functional_id" in str(e.value)
+
+
+def test_functional_with_expect_rejected(tmp_path):
+    # 功能寻址发完即记、不做判定，带 expect 属配置错误，加载期必须拒绝
+    text = BASE.replace('request: "1003"', 'request: "1003", addressing: functional')
+    with pytest.raises(ConfigError) as e:
+        load_config(write(tmp_path, text))
+    assert "expect" in str(e.value)
 
 
 def test_fd_not_bool(tmp_path):
@@ -125,7 +134,8 @@ def test_request_id_bool(tmp_path):
 
 
 def test_functional_over_sf_rejected(tmp_path):
-    text = BASE.replace('request: "1003"', 'request: "10031122334455667788", addressing: functional')
+    text = BASE.replace('request: "1003", expect: "5003"',
+                        'request: "10031122334455667788", addressing: functional')
     with pytest.raises(ConfigError) as e:
         load_config(write(tmp_path, text))
     assert "单帧" in str(e.value)
@@ -134,7 +144,8 @@ def test_functional_over_sf_rejected(tmp_path):
 def test_functional_fd_62_bytes_ok(tmp_path):
     req = "10" + "11" * 61  # 62 字节 = FD 功能寻址单帧上限
     text = BASE.replace("fd: false", "fd: true")
-    text = text.replace('request: "1003"', f'request: "{req}", addressing: functional')
+    text = text.replace('request: "1003", expect: "5003"',
+                        f'request: "{req}", addressing: functional')
     cfg = load_config(write(tmp_path, text))
     assert len(cfg["steps"][0].request) == 62
 
@@ -142,7 +153,8 @@ def test_functional_fd_62_bytes_ok(tmp_path):
 def test_functional_fd_63_bytes_rejected(tmp_path):
     req = "10" + "11" * 62  # 63 字节，超过 FD 单帧上限
     text = BASE.replace("fd: false", "fd: true")
-    text = text.replace('request: "1003"', f'request: "{req}", addressing: functional')
+    text = text.replace('request: "1003", expect: "5003"',
+                        f'request: "{req}", addressing: functional')
     with pytest.raises(ConfigError) as e:
         load_config(write(tmp_path, text))
     assert "单帧" in str(e.value)
