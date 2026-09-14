@@ -16,6 +16,8 @@ def dlc_to_len(dlc: int) -> int:
 
 
 def len_to_dlc(n: int) -> int:
+    if n < 0:
+        raise ValueError(f"非法帧长 {n}")
     if n <= 8:
         return n
     for d, l in enumerate(FD_DLC_LEN):
@@ -73,15 +75,20 @@ def import_zlgcan():
     except ImportError:
         vendor = Path(__file__).resolve().parent / "vendor" / "zlgcan"
         if (vendor / "zlgcan.py").exists():
+            if str(vendor) not in sys.path:
+                sys.path.insert(0, str(vendor))
             os.environ["PATH"] = str(vendor) + os.pathsep + os.environ.get("PATH", "")
-            sys.path.insert(0, str(vendor))
+            if hasattr(os, "add_dll_directory"):
+                os.add_dll_directory(str(vendor))
             import zlgcan
             return zlgcan
         raise
 
 
 class ZlgCanDriver(CanDriver):
-    DEVICE_TYPES = {"USBCANFD-100U": 58, "USBCANFD-200U": 59, "USBCANFD-800U": 60}
+    _DEV_TYPE_CONSTS = {"USBCANFD-100U": ("ZCAN_USBCANFD_100U", 42),
+                        "USBCANFD-200U": ("ZCAN_USBCANFD_200U", 41),
+                        "USBCANFD-800U": ("ZCAN_USBCANFD_800U", 59)}
 
     def __init__(self, device="USBCANFD-200U", device_index=0, channel=0,
                  baudrate=500000, data_baudrate=2000000, fd=True):
@@ -90,18 +97,26 @@ class ZlgCanDriver(CanDriver):
         self._z = z
         self.channel = channel
         self.fd = fd
-        if device not in self.DEVICE_TYPES:
-            raise RuntimeError(f"不支持的设备 {device}，可选 {list(self.DEVICE_TYPES)}")
-        self._dev = z.ZCAN_OpenDevice(self.DEVICE_TYPES[device], device_index, 0)
+        self.rx_error = None
+        if device not in self._DEV_TYPE_CONSTS:
+            raise RuntimeError(f"不支持的设备 {device}，可选 {list(self._DEV_TYPE_CONSTS)}")
+        const_name, fallback = self._DEV_TYPE_CONSTS[device]
+        dev_type = getattr(z, const_name, fallback)
+        self._dev = z.ZCAN_OpenDevice(dev_type, device_index, 0)
         if not self._dev:
             raise RuntimeError(f"打开 {device}#{device_index} 失败：检查 USB 连接与设备索引")
-        ch = str(channel).encode()
         try:
             if fd:
-                z.ZCAN_SetValue(self._dev, ch + b"/canfd_abit_baud_rate", str(baudrate).encode())
-                z.ZCAN_SetValue(self._dev, ch + b"/canfd_dbit_baud_rate", str(data_baudrate).encode())
+                key = f"{channel}/canfd_abit_baud_rate"
+                if z.ZCAN_SetValue(self._dev, key.encode(), str(baudrate).encode()) != 1:
+                    raise RuntimeError(f"设置波特率失败（{key}）")
+                key = f"{channel}/canfd_dbit_baud_rate"
+                if z.ZCAN_SetValue(self._dev, key.encode(), str(data_baudrate).encode()) != 1:
+                    raise RuntimeError(f"设置波特率失败（{key}）")
             else:
-                z.ZCAN_SetValue(self._dev, ch + b"/baud_rate", str(baudrate).encode())
+                key = f"{channel}/baud_rate"
+                if z.ZCAN_SetValue(self._dev, key.encode(), str(baudrate).encode()) != 1:
+                    raise RuntimeError(f"设置波特率失败（{key}）")
             if z.ZCAN_InitCAN(self._dev, channel, z.ZCAN_CHANNEL_MODE_NORMAL) != 1:
                 raise RuntimeError(f"通道 {channel} 初始化失败")
         except Exception:
@@ -116,26 +131,36 @@ class ZlgCanDriver(CanDriver):
     def _rx_loop(self):
         BATCH = 100
         z = self._z
-        if self.fd:
-            buf = (z.ZCAN_ReceiveFD_Data * BATCH)()
-            while self._running.is_set():
-                n = z.ZCAN_ReceiveFD(self._dev, self.channel, buf, BATCH, 100)
-                for i in range(n):
-                    m = buf[i]
-                    data = bytes(_get(m, "Data", "data"))[:dlc_to_len(_get(m, "DLC", "dlc"))]
-                    self.rx_queue.put(CanFrame(_get(m, "ID", "id"), data, is_fd=True,
-                                               bitrate_switch=bool(_get(m, "BRS", "brs"))))
-        else:
-            buf = (z.ZCAN_Receive_Data * BATCH)()
-            while self._running.is_set():
-                n = z.ZCAN_Receive(self._dev, self.channel, buf, BATCH, 100)
-                for i in range(n):
-                    m = buf[i]
-                    length = _get(m, "DataLen", "data_len", "dlc", "len") & 0xFF
-                    data = bytes(_get(m, "Data", "data"))[:length]
-                    self.rx_queue.put(CanFrame(_get(m, "ID", "id"), data, is_fd=False))
+        try:
+            if self.fd:
+                buf = (z.ZCAN_ReceiveFD_Data * BATCH)()
+                while self._running.is_set():
+                    n = z.ZCAN_ReceiveFD(self._dev, self.channel, buf, BATCH, 100)
+                    for i in range(n):
+                        m = buf[i]
+                        data = bytes(_get(m, "Data", "data"))[:dlc_to_len(_get(m, "DLC", "dlc"))]
+                        self.rx_queue.put(CanFrame(_get(m, "ID", "id"), data, is_fd=True,
+                                                   bitrate_switch=bool(_get(m, "BRS", "brs"))))
+            else:
+                buf = (z.ZCAN_Receive_Data * BATCH)()
+                while self._running.is_set():
+                    n = z.ZCAN_Receive(self._dev, self.channel, buf, BATCH, 100)
+                    for i in range(n):
+                        m = buf[i]
+                        length = _get(m, "DataLen", "data_len", "dlc", "len") & 0xFF
+                        data = bytes(_get(m, "Data", "data"))[:length]
+                        self.rx_queue.put(CanFrame(_get(m, "ID", "id"), data, is_fd=False))
+        except Exception as e:
+            self.rx_error = e
+            print(f"CAN 接收线程异常退出：{e}", file=sys.stderr)
 
     def send(self, frame: CanFrame):
+        if frame.is_fd != self.fd:
+            driver_mode = "CAN FD" if self.fd else "经典 CAN"
+            frame_mode = "CAN FD" if frame.is_fd else "经典 CAN"
+            raise ValueError(f"帧模式不匹配：驱动工作在 {driver_mode} 模式，收到 {frame_mode} 帧")
+        if not frame.is_fd and len(frame.data) > 8:
+            raise ValueError("经典 CAN 帧最长 8 字节")
         z = self._z
         with self._tx_lock:
             if frame.is_fd:
@@ -164,6 +189,7 @@ class ZlgCanDriver(CanDriver):
 
     def close(self):
         self._running.clear()
+        self._rx_thread.join(timeout=2.0)
         try:
             self._z.ZCAN_ResetCAN(self._dev, self.channel)
             self._z.ZCAN_CloseDevice(self._dev)
