@@ -15,7 +15,12 @@ class UdsResult:
 
     @property
     def ok(self) -> bool:
-        return self.response is not None and not self.timeout and self.nrc is None
+        """True 表示收到非空、非 0x7F 打头的响应且未超时。
+
+        0x7F 打头一律不 ok（含缺 NRC 字节的截断负响应如 7F22）；
+        空响应与超时也不 ok。
+        """
+        return bool(self.response) and self.response[0] != 0x7F and not self.timeout
 
 
 class UdsClient:
@@ -26,6 +31,20 @@ class UdsClient:
         self.log = log or (lambda *a, **k: None)
 
     def request(self, payload: bytes, timeout_ms: int | None = None) -> UdsResult:
+        """发送 UDS 请求并等待响应，期间处理 0x78 pending 循环。
+
+        - timeout_ms 只覆盖 P2（单响应超时），不约束收到首个 0x78 后的
+          P2* 等待；未指定时用 self.p2_ms。timeout_ms=0 表示发送后
+          立即判定超时。
+        - P2* 为单个总窗口：从收到首个 0x78 的时刻起算 self.p2star_ms，
+          后续 0x78 不重置窗口（设计决策：本工具定位轻量诊断，有界窗口
+          防 ECU 无限 pending 导致客户端挂死）。
+        - 发送阶段异常（TimeoutError/IsoTpError）直接向上抛出，
+          不走 UdsResult.timeout。
+        - t0 在发送前采样，多帧发送耗时计入 elapsed_ms。
+        - 链路空响应（b""，如全零噪声经 RxAssembler 产生）视为噪声
+          丢弃，继续等待至 deadline 兜底。
+        """
         p2_s = (timeout_ms if timeout_ms is not None else self.p2_ms) / 1000.0
         t0 = time.monotonic()
         self.transport.send_payload(payload)
@@ -42,11 +61,14 @@ class UdsClient:
             resp = self.transport.recv_payload(limit - now)
             if resp is None:
                 continue  # 回到循环头重查超时
+            if not resp:
+                continue  # 空响应视为链路噪声，丢弃继续等，deadline 兜底
             if len(resp) >= 3 and resp[0] == 0x7F and resp[2] == 0x78:
                 res.pendings += 1
                 self.log("收到 NRC 0x78 pending，继续等待（P2*）")
                 if total_deadline is None:
-                    total_deadline = t0 + self.p2star_ms / 1000.0
+                    # P2* 锚定在首个 0x78 到达时刻，而非请求发出时刻
+                    total_deadline = time.monotonic() + self.p2star_ms / 1000.0
                 continue
             res.elapsed_ms = (time.monotonic() - t0) * 1000.0
             res.response = resp
