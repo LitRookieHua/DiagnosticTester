@@ -23,9 +23,10 @@ def test_run_flow_pass(tmp_path):
 
     def on_send(frame):
         d = frame.data
-        if d[1:] == bytes.fromhex("1003"):
+        req = d[1:1 + d[0]]  # 按SF PCI长度截取（帧补齐到8字节）
+        if req == bytes.fromhex("1003"):
             mock.push_rx(0x78C, bytes([4]) + bytes.fromhex("50030032"))
-        elif d[1:] == bytes.fromhex("22F195"):
+        elif req == bytes.fromhex("22F195"):
             mock.push_rx(0x78C, bytes([5]) + bytes.fromhex("62F1950102"))
 
     mock.on_send = on_send
@@ -80,8 +81,8 @@ def test_functional_step_no_wait(tmp_path):
     summary = run_flow(cfg, mock, tmp_path)
     assert summary == {"total": 2, "pass": 2, "fail": 0, "timeout": 0}
     assert mock.sent[0].can_id == 0x7DF
-    assert mock.sent[0].data == bytes([2, 0x10, 0x03])
-    assert mock.sent[1].data == bytes([2, 0x3E, 0x80])
+    assert mock.sent[0].data == bytes([2, 0x10, 0x03]) + bytes(5)  # SF 补齐到 8 字节
+    assert mock.sent[1].data == bytes([2, 0x3E, 0x80]) + bytes(5)
     # 功能寻址步骤也须记入 CSV（verdict=SENT），行数与步骤对齐
     csv_text = (tmp_path / "result.csv").read_text(encoding="utf-8")
     rows = [line for line in csv_text.splitlines() if line.strip()]

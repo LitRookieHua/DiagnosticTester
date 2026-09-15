@@ -53,7 +53,7 @@ def test_send_sf_classic():
     try:
         t.send_payload(bytes.fromhex("22F195"))
         assert mock.sent[0].can_id == 0x70C
-        assert mock.sent[0].data == bytes([3, 0x22, 0xF1, 0x95])
+        assert mock.sent[0].data == bytes([3, 0x22, 0xF1, 0x95]) + bytes(4)  # SF 补齐到 8 字节
     finally:
         t.stop()
 

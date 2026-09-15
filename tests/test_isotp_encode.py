@@ -5,7 +5,7 @@ from isotp import encode
 
 def test_classic_sf_7bytes():
     p = bytes.fromhex("22F195AABBCCDD")
-    assert encode(p, False) == [bytes([7]) + p]
+    assert encode(p, False) == [bytes([7]) + p]  # 1 PCI + 7 载荷，恰好 8 字节无需补
 
 
 def test_classic_8bytes_goes_ff_cf():
@@ -25,7 +25,13 @@ def test_classic_multiframe_seq():
 
 def test_fd_sf_small_uses_classic_form():
     p = bytes.fromhex("22F195")
-    assert encode(p, True) == [bytes([3]) + p]
+    assert encode(p, True) == [bytes([3]) + p + bytes(4)]  # SF 补齐到 8 字节
+
+
+def test_sf_padded_to_8_for_short_payload():
+    # 实测目标 ECU 的 CanTp 只接受恰好 8 字节的 SF 帧
+    assert encode(bytes([0x10, 0x03]), False) == [bytes([0x02, 0x10, 0x03]) + bytes(5)]
+    assert encode(bytes([0x10, 0x03]), True) == [bytes([0x02, 0x10, 0x03]) + bytes(5)]
 
 
 def test_fd_sf_62_escape_form():

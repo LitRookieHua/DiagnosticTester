@@ -26,21 +26,6 @@ def len_to_dlc(n: int) -> int:
     raise ValueError(f"非法帧长 {n}")
 
 
-def _get(obj, *names):
-    for n in names:
-        if hasattr(obj, n):
-            return getattr(obj, n)
-    raise AttributeError(f"结构体缺少字段 {names}")
-
-
-def _set(obj, value, *names):
-    for n in names:
-        if hasattr(obj, n):
-            setattr(obj, n, value)
-            return
-    raise AttributeError(f"结构体缺少字段 {names}")
-
-
 @dataclass
 class CanFrame:
     can_id: int
@@ -93,34 +78,41 @@ class ZlgCanDriver(CanDriver):
     def __init__(self, device="USBCANFD-200U", device_index=0, channel=0,
                  baudrate=500000, data_baudrate=2000000, fd=True):
         super().__init__()
-        z = import_zlgcan()
-        self._z = z
+        zmod = import_zlgcan()
+        self._zmod = zmod
+        self._z = zmod.ZCAN()
         self.channel = channel
         self.fd = fd
         self.rx_error = None
         if device not in self._DEV_TYPE_CONSTS:
             raise RuntimeError(f"不支持的设备 {device}，可选 {list(self._DEV_TYPE_CONSTS)}")
         const_name, fallback = self._DEV_TYPE_CONSTS[device]
-        dev_type = getattr(z, const_name, fallback)
-        self._dev = z.ZCAN_OpenDevice(dev_type, device_index, 0)
+        dev_type = getattr(zmod, const_name, fallback)
+        self._dev = self._z.OpenDevice(dev_type, device_index, 0)
         if not self._dev:
             raise RuntimeError(f"打开 {device}#{device_index} 失败：检查 USB 连接与设备索引")
         try:
             if fd:
-                key = f"{channel}/canfd_abit_baud_rate"
-                if z.ZCAN_SetValue(self._dev, key.encode(), str(baudrate).encode()) != 1:
-                    raise RuntimeError(f"设置波特率失败（{key}）")
-                key = f"{channel}/canfd_dbit_baud_rate"
-                if z.ZCAN_SetValue(self._dev, key.encode(), str(data_baudrate).encode()) != 1:
-                    raise RuntimeError(f"设置波特率失败（{key}）")
+                self._set_value(f"{channel}/canfd_abit_baud_rate", str(baudrate))
+                self._set_value(f"{channel}/canfd_dbit_baud_rate", str(data_baudrate))
             else:
-                key = f"{channel}/baud_rate"
-                if z.ZCAN_SetValue(self._dev, key.encode(), str(baudrate).encode()) != 1:
-                    raise RuntimeError(f"设置波特率失败（{key}）")
-            if z.ZCAN_InitCAN(self._dev, channel, z.ZCAN_CHANNEL_MODE_NORMAL) != 1:
+                self._set_value(f"{channel}/baud_rate", str(baudrate))
+            self._set_value(f"{channel}/initenal_resistance", "1")
+            self._set_value(f"{channel}/set_device_tx_echo", "0")
+            cfg = zmod.ZCAN_CHANNEL_INIT_CONFIG()
+            if fd:
+                cfg.can_type = zmod.ZCAN_TYPE_CANFD
+                cfg.config.canfd.mode = 0  # 0-正常模式 1-只听模式
+            else:
+                cfg.can_type = zmod.ZCAN_TYPE_CAN
+                cfg.config.can.mode = 0
+            self._chn = self._z.InitCAN(self._dev, channel, cfg)
+            if not self._chn:
                 raise RuntimeError(f"通道 {channel} 初始化失败")
+            if self._z.StartCAN(self._chn) != 1:
+                raise RuntimeError(f"通道 {channel} 启动失败")
         except Exception:
-            z.ZCAN_CloseDevice(self._dev)
+            self._z.CloseDevice(self._dev)
             raise
         self._running = threading.Event()
         self._running.set()
@@ -128,28 +120,32 @@ class ZlgCanDriver(CanDriver):
         self._rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
         self._rx_thread.start()
 
+    def _set_value(self, key: str, value: str):
+        if self._z.ZCAN_SetValue(self._dev, key, value.encode("utf-8")) != 1:
+            raise RuntimeError(f"设置 {key}={value} 失败")
+
     def _rx_loop(self):
         BATCH = 100
-        z = self._z
+        z, zmod = self._z, self._zmod
         try:
-            if self.fd:
-                buf = (z.ZCAN_ReceiveFD_Data * BATCH)()
-                while self._running.is_set():
-                    n = z.ZCAN_ReceiveFD(self._dev, self.channel, buf, BATCH, 100)
-                    for i in range(n):
-                        m = buf[i]
-                        data = bytes(_get(m, "Data", "data"))[:dlc_to_len(_get(m, "DLC", "dlc"))]
-                        self.rx_queue.put(CanFrame(_get(m, "ID", "id"), data, is_fd=True,
-                                                   bitrate_switch=bool(_get(m, "BRS", "brs"))))
-            else:
-                buf = (z.ZCAN_Receive_Data * BATCH)()
-                while self._running.is_set():
-                    n = z.ZCAN_Receive(self._dev, self.channel, buf, BATCH, 100)
-                    for i in range(n):
-                        m = buf[i]
-                        length = _get(m, "DataLen", "data_len", "dlc", "len") & 0xFF
-                        data = bytes(_get(m, "Data", "data"))[:length]
-                        self.rx_queue.put(CanFrame(_get(m, "ID", "id"), data, is_fd=False))
+            while self._running.is_set():
+                if self.fd:
+                    # FD 通道上经典帧与 FD 帧分别落在两个接收队列，都要取走
+                    n = z.GetReceiveNum(self._chn, zmod.ZCAN_TYPE_CANFD)
+                    if n:
+                        msgs, cnt = z.ReceiveFD(self._chn, min(n, BATCH), 100)
+                        for m in msgs[:cnt]:
+                            f = m.frame
+                            self.rx_queue.put(CanFrame(
+                                f.can_id, bytes(f.data)[:f.len], is_fd=True,
+                                bitrate_switch=bool(f.flags & 0x1)))
+                n = z.GetReceiveNum(self._chn, zmod.ZCAN_TYPE_CAN)
+                if n:
+                    msgs, cnt = z.Receive(self._chn, min(n, BATCH), 100)
+                    for m in msgs[:cnt]:
+                        f = m.frame
+                        self.rx_queue.put(CanFrame(
+                            f.can_id, bytes(f.data)[:f.can_dlc], is_fd=False))
         except Exception as e:
             self.rx_error = e
             print(f"CAN 接收线程异常退出：{e}", file=sys.stderr)
@@ -161,40 +157,41 @@ class ZlgCanDriver(CanDriver):
             raise ValueError(f"帧模式不匹配：驱动工作在 {driver_mode} 模式，收到 {frame_mode} 帧")
         if not frame.is_fd and len(frame.data) > 8:
             raise ValueError("经典 CAN 帧最长 8 字节")
-        z = self._z
+        z, zmod = self._z, self._zmod
         with self._tx_lock:
             if frame.is_fd:
-                msgs = (z.ZCAN_TransmitFD_Data * 1)()
+                msgs = (zmod.ZCAN_TransmitFD_Data * 1)()
                 m = msgs[0]
-                dlc = len_to_dlc(len(frame.data))
-                wire_len = dlc_to_len(dlc)
-                data = frame.data + bytes(wire_len - len(frame.data))  # 补齐到 DLC 合法长度，避免未初始化字节上线
-                _set(m, 0, "SendType", "send_type")
-                _set(m, 1 if frame.bitrate_switch else 0, "BRS", "brs")
-                _set(m, dlc, "DLC", "dlc")
-                _set(m, frame.can_id, "ID", "id")
-                arr = _get(m, "Data", "data")
+                f = m.frame
+                # 实测 ECU CanIf 只接受 8 字节 FD 帧（64 字节配置与固件实际不符），
+                # 故最小补齐到 8；更长载荷按 DLC 阶梯补齐
+                wire_len = max(8, dlc_to_len(len_to_dlc(len(frame.data))))
+                data = frame.data + bytes(wire_len - len(frame.data))  # 补齐到合法长度，避免未初始化字节上线
+                f.can_id = frame.can_id
+                f.len = wire_len  # 结构体 len 为字节数（0-64），固件自行转 DLC
+                f.flags = 0x1 if frame.bitrate_switch else 0x0  # bit0 BRS 加速
+                m.transmit_type = 0
                 for i, b in enumerate(data):
-                    arr[i] = b
-                if z.ZCAN_TransmitFD(self._dev, self.channel, msgs, 1) != 1:
+                    f.data[i] = b
+                if z.TransmitFD(self._chn, msgs, 1) != 1:
                     raise RuntimeError("CAN FD 发送失败")
             else:
-                msgs = (z.ZCAN_Transmit_Data * 1)()
+                msgs = (zmod.ZCAN_Transmit_Data * 1)()
                 m = msgs[0]
-                _set(m, 0, "SendType", "send_type")
-                _set(m, len(frame.data), "DataLen", "data_len", "dlc", "len")
-                _set(m, frame.can_id, "ID", "id")
-                arr = _get(m, "Data", "data")
+                f = m.frame
+                f.can_id = frame.can_id
+                f.can_dlc = len(frame.data)
+                m.transmit_type = 0
                 for i, b in enumerate(frame.data):
-                    arr[i] = b
-                if z.ZCAN_Transmit(self._dev, self.channel, msgs, 1) != 1:
+                    f.data[i] = b
+                if z.Transmit(self._chn, msgs, 1) != 1:
                     raise RuntimeError("CAN 发送失败")
 
     def close(self):
         self._running.clear()
         self._rx_thread.join(timeout=2.0)
         try:
-            self._z.ZCAN_ResetCAN(self._dev, self.channel)
-            self._z.ZCAN_CloseDevice(self._dev)
+            self._z.ResetCAN(self._chn)
+            self._z.CloseDevice(self._dev)
         except Exception:
             pass

@@ -25,7 +25,9 @@ def encode(payload: bytes, is_fd: bool) -> list[bytes]:
     if len(payload) > 0xFFF:
         raise ValueError("payload 超过 4095 字节未支持")
     if len(payload) <= 7:
-        return [bytes([len(payload)]) + payload]
+        # SF 补齐到 8 字节：实测目标 ECU 的 CanTp 只接受恰好 8 字节的 SF 帧
+        sf = bytes([len(payload)]) + payload
+        return [sf + bytes(8 - len(sf))]
     if is_fd and len(payload) <= 62:
         return [bytes([0x00, len(payload)]) + payload]
     head = 0x1000 | len(payload)

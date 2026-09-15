@@ -3,3 +3,4 @@ __pycache__/
 logs/
 vendor/zlgcan/*
 !vendor/zlgcan/README.md
+zlg/
