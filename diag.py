@@ -1,9 +1,10 @@
 """诊断测试工具 CLI。
 
 用法：
-  python diag.py run <flow.yaml>            跑配置流程
-  python diag.py chat --config <flow.yaml>  交互模式
-  python diag.py probe --config <flow.yaml> 单发一条请求（如 22F195）
+  python diag.py run <flow.yaml>                      跑配置流程
+  python diag.py chat --config <flow.yaml>            交互模式
+  python diag.py probe --config <flow.yaml> 22F195   单发一条请求
+  python diag.py unlock --config <flow.yaml> app      0x27 安全解锁
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from pathlib import Path
 from flow import ConfigError, load_config, parse_hex_bytes, run_flow
 from isotp import IsoTpError, IsoTpTransport
 from recorder import Recorder
+from security import LEVELS, UnlockError, perform_unlock
 from uds import UdsClient
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -108,10 +110,33 @@ def cmd_probe(args):
         return 0
 
 
+def cmd_unlock(args):
+    cfg = load_config(args.config, need_steps=False)
+    with open_session(cfg, "unlock") as (_driver, rec, _transport, uds):
+        log = rec.event
+        log(f"安全解锁（{args.level} 级）")
+        try:
+            seed, key, result = perform_unlock(uds, args.level, log=log)
+        except UnlockError as e:
+            log(f"安全解锁[{args.level}] 失败：{e}")
+            print(f"解锁失败：{e}")
+            return 1 if e.timeout else 2
+        print(f"种子：{seed.hex().upper()}")
+        print(f"密钥：{key.hex().upper()}")
+        print(f"响应：{result.response.hex().upper() if result.response else '超时无响应'}"
+              + (f"（NRC 0x{result.nrc:02X}）" if result.nrc is not None else ""))
+        if result.timeout:
+            return 1  # ECU 无响应（P2 超时）
+        if result.nrc is not None:
+            return 2  # 收到负响应
+        return 0
+
+
 def cmd_chat(args):
     cfg = load_config(args.config, need_steps=False)
     with open_session(cfg, "chat") as (_driver, rec, _transport, uds):
-        print(f"交互模式（日志：{rec.run_dir}）。输入十六进制请求如 22F195，:q 退出")
+        print(f"交互模式（日志：{rec.run_dir}）。输入十六进制请求如 22F195，"
+              f"unlock <{'/'.join(sorted(LEVELS))}> 解锁，:q 退出")
         while True:
             try:
                 line = input("diag> ").strip()
@@ -121,6 +146,29 @@ def cmd_chat(args):
                 continue
             if line.lower() in (":q", ":quit", "exit"):
                 break
+            parts = line.split()
+            if parts[0].lower() == "unlock":
+                level = parts[1] if len(parts) > 1 else ""
+                if level not in LEVELS:
+                    print(f"未知等级 {level!r}，可选 {sorted(LEVELS)}")
+                    continue
+                rec.event(f"手动解锁（{level} 级）")
+                try:
+                    seed, key, result = perform_unlock(uds, level, log=rec.event)
+                except UnlockError as e:
+                    print(f"解锁失败：{e}")
+                    continue
+                except (TimeoutError, IsoTpError, RuntimeError, ValueError) as e:
+                    print(f"请求失败：{e}")
+                    continue
+                if result.timeout:
+                    print("超时无响应")
+                else:
+                    print(f"种子 {seed.hex().upper()} 密钥 {key.hex().upper()}")
+                    print(f"{result.response.hex().upper()}"
+                          + (f"（NRC 0x{result.nrc:02X}）" if result.nrc is not None else "")
+                          + f"  {result.elapsed_ms:.0f}ms")
+                continue
             try:
                 request = parse_hex_bytes(line, "request")
             except ConfigError as e:
@@ -158,6 +206,12 @@ def main(argv=None):
     p_probe.add_argument("--config", required=True)
     p_probe.add_argument("request", help="十六进制请求，如 22F195")
     p_probe.set_defaults(func=cmd_probe)
+
+    p_unlock = sub.add_parser("unlock", help="0x27 安全解锁")
+    p_unlock.add_argument("--config", required=True)
+    p_unlock.add_argument("level", choices=sorted(LEVELS),
+                          help="安全等级：app / boot / develop")
+    p_unlock.set_defaults(func=cmd_unlock)
 
     args = parser.parse_args(argv)
     try:

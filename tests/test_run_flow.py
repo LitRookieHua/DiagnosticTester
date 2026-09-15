@@ -140,3 +140,87 @@ def test_nrc_recorded_in_csv(tmp_path):
     csv_text = (tmp_path / "result.csv").read_text(encoding="utf-8")
     assert "0x31" in csv_text
     assert "FAIL" in csv_text
+
+
+SEC_CONFIG = """
+can: {device: mock, channel: 0, fd: true, baudrate: 500000}
+diagnostic: {request_id: 0x70C, response_id: 0x78C}
+timing: {p2_ms: 100, p2star_ms: 1000, step_delay_ms: 0}
+steps:
+  - {name: 解锁, security_access: app}
+on_fail: abort
+"""
+
+SEED = bytes.fromhex("2CBA4F594105BBF56B52B17757369A46")
+
+
+def _parse_sf(data):
+    # SF 解析：经典 1 字节 PCI（≤7B）与 FD 转义形式（8-62B）
+    if data[0] == 0x00:
+        return bytes(data[2:2 + data[1]])
+    return bytes(data[1:1 + (data[0] & 0x0F)])
+
+
+def _sf_rx(payload):
+    # 构造响应帧 data：≤7B 用 1 字节 PCI 补齐到 8，8-62B 用 FD 转义形式
+    if len(payload) <= 7:
+        return bytes([len(payload)]) + payload + bytes(7 - len(payload))
+    return bytes([0x00, len(payload)]) + payload
+
+
+class SecEcu:
+    """模拟 ECU 0x27：回固定种子，按算法校验密钥。"""
+
+    def __init__(self, mock, seed, accept=True):
+        from security import compute_key
+        self.mock, self.seed, self.accept = mock, seed, accept
+        self._compute = compute_key
+
+    def __call__(self, frame):
+        req = _parse_sf(frame.data)
+        if req[:2] == bytes.fromhex("2701"):
+            self.mock.push_rx(0x78C, _sf_rx(bytes.fromhex("6701") + self.seed))
+        elif req[:2] == bytes.fromhex("2702"):
+            key = req[2:]
+            ok = key == self._compute("app", self.seed, key[:16])
+            resp = bytes.fromhex("6702") if (ok and self.accept) else bytes.fromhex("7F2735")
+            self.mock.push_rx(0x78C, _sf_rx(resp))
+
+
+def test_security_step_unlock_pass(tmp_path):
+    cfg_path = tmp_path / "flow.yaml"
+    cfg_path.write_text(SEC_CONFIG, encoding="utf-8")
+    cfg = load_config(cfg_path)
+    mock = MockCanDriver()
+    mock.on_send = SecEcu(mock, SEED)
+    summary = run_flow(cfg, mock, tmp_path)
+    assert summary == {"total": 1, "pass": 1, "fail": 0, "timeout": 0}
+    # 密钥请求应为 34B payload 的 FD 转义 SF：00 22 27 02 ...
+    key_frame = mock.sent[1]
+    assert key_frame.data[:3] == bytes([0x00, 34, 0x27])
+    csv_text = (tmp_path / "result.csv").read_text(encoding="utf-8")
+    assert "PASS" in csv_text and "2701+2702" in csv_text
+    log_text = (tmp_path / "run.log").read_text(encoding="utf-8")
+    assert SEED.hex().upper() in log_text  # 种子记入日志
+
+
+def test_security_step_wrong_key_fail(tmp_path):
+    cfg_path = tmp_path / "flow.yaml"
+    cfg_path.write_text(SEC_CONFIG, encoding="utf-8")
+    cfg = load_config(cfg_path)
+    mock = MockCanDriver()
+    mock.on_send = SecEcu(mock, SEED, accept=False)
+    summary = run_flow(cfg, mock, tmp_path)
+    assert summary == {"total": 1, "pass": 0, "fail": 1, "timeout": 0}
+    assert "FAIL" in (tmp_path / "result.csv").read_text(encoding="utf-8")
+
+
+def test_security_step_seed_timeout_fail(tmp_path):
+    # 取种子无响应：UnlockError → 判 FAIL（abort 中止流程）
+    cfg_path = tmp_path / "flow.yaml"
+    cfg_path.write_text(SEC_CONFIG, encoding="utf-8")
+    cfg = load_config(cfg_path)
+    mock = MockCanDriver()  # 不回帧
+    summary = run_flow(cfg, mock, tmp_path)
+    assert summary == {"total": 1, "pass": 0, "fail": 1, "timeout": 0}
+    assert "FAIL" in (tmp_path / "result.csv").read_text(encoding="utf-8")

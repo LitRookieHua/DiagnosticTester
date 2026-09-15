@@ -19,6 +19,9 @@ steps:
   - name: 进扩展会话
     request: "1003"
     expect: "5003"
+  # 安全解锁步骤示例（可选）：执行完整 27 取种子→发密钥序列
+  # - name: 解锁 app
+  #   security_access: app
   - name: 读 DID F195（部件号）
     request: "22F195"
     expect: "62F195"

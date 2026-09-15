@@ -15,6 +15,17 @@
     python diag.py run configs/example.yaml              # 跑配置流程
     python diag.py chat --config configs/example.yaml    # 交互模式
     python diag.py probe --config configs/example.yaml 22F195   # 单发一条
+    python diag.py unlock --config configs/example.yaml app      # 0x27 安全解锁
+
+`unlock` 支持三个安全等级（与 ECU `dia_cfg` b81vs/n60 变体一致）：
+
+- `app` — 27 01 取种子、27 02 发 32 字节密钥（DF || Token，AES-CMAC）
+- `boot` — 27 11 / 27 12，算法同 app（独立 key factor）
+- `develop` — 27 61（携带 16 字节魔数）/ 27 62 发 16 字节密钥
+
+解锁种子/密钥记入 `run.log`；退出码与 `probe` 一致：0 成功、1 超时无响应、
+2 负响应（含 NRC 0x35 密钥错误）。交互模式下可用 `unlock app`（或
+boot/develop）触发，失败不断线可继续输入。
 
 ## 输出
 
@@ -38,12 +49,15 @@
 - **timing** — 超时与节奏：`p2_ms` 单响应超时（默认 50）、`p2star_ms`
   收到 NRC 0x78 后的等待窗口（默认 5000，自首个 0x78 起算、后续 0x78
   不重置）、`step_delay_ms` 步骤间默认间隔（默认 100）。三项均可省略。
-- **steps** — 步骤列表：每步必填 `name` 与 `request`（引号包裹的十六进制
-  字符串，如 `"22F195"`）；可选 `expect`（期望响应前缀，省略则只发不判、
-  超时不算失败）、`timeout_ms`（覆盖该步的 P2 超时，不约束 0x78 后的
+- **steps** — 步骤列表：每步必填 `name`，普通步骤另填 `request`（引号包裹的
+  十六进制字符串，如 `"22F195"`）；可选 `expect`（期望响应前缀，省略则只发
+  不判、超时不算失败）、`timeout_ms`（覆盖该步的 P2 超时，不约束 0x78 后的
   P2* 窗口）、`delay_after_ms`（该步收尾延时，整体覆盖 `step_delay_ms`
   而非叠加）、`addressing`（`physical` 默认 / `functional`：发完即记、
   不支持 `expect`，请求长度不得超过单帧上限——经典 7 字节、FD 62 字节）。
+  另一类是安全解锁步骤：填 `security_access: app|boot|develop`（不可与
+  `request`/`expect`/功能寻址同用），执行完整 27 取种子 → 算密钥 → 发密钥
+  序列，密钥响应 `67+key_sub` 判 PASS。
 - **on_fail** — 失败策略：`abort`（默认，首个 FAIL/TIMEOUT 即中止）或
   `continue`（跑完全部步骤）。
 

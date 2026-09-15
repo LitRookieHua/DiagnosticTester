@@ -11,10 +11,12 @@ import yaml
 from can_driver import CanFrame
 from isotp import IsoTpTransport, encode
 from recorder import Recorder
+from security import LEVELS, UnlockError, perform_unlock
 from uds import UdsClient, UdsResult
 
 HEX_RE = re.compile(r"^[0-9A-Fa-f]+$")
-STEP_FIELDS = {"name", "request", "expect", "timeout_ms", "delay_after_ms", "addressing"}
+STEP_FIELDS = {"name", "request", "expect", "timeout_ms", "delay_after_ms",
+               "addressing", "security_access"}
 CAN_FIELDS = {"device", "channel", "fd", "baudrate", "data_baudrate"}
 DIAGNOSTIC_FIELDS = {"request_id", "response_id", "functional_id"}
 TIMING_FIELDS = {"p2_ms", "p2star_ms", "step_delay_ms"}
@@ -27,11 +29,12 @@ class ConfigError(Exception):
 @dataclass
 class Step:
     name: str
-    request: bytes
+    request: bytes | None = None
     expect: bytes | None = None
     timeout_ms: int | None = None
     delay_after_ms: int | None = None
     addressing: str = "physical"
+    security_access: str | None = None
 
 
 def parse_hex_bytes(s, where: str) -> bytes:
@@ -146,11 +149,24 @@ def load_config(path, need_steps: bool = True) -> dict:
             unknown = set(s) - STEP_FIELDS
             if unknown:
                 raise ConfigError(f"{where}: 未知字段 {sorted(unknown)}")
-            for k in ("name", "request"):
-                if k not in s:
-                    raise ConfigError(f"{where}.{k}: 缺失")
+            if "name" not in s:
+                raise ConfigError(f"{where}.name: 缺失")
             for k in ("timeout_ms", "delay_after_ms"):
                 _check_num(s, k, where)
+            security = s.get("security_access")
+            if security is not None:
+                if "request" in s or "expect" in s:
+                    raise ConfigError(f"{where}: security_access 步骤不支持 request/expect")
+                if security not in LEVELS:
+                    raise ConfigError(f"{where}.security_access: 只能是 {sorted(LEVELS)}")
+                if s.get("addressing", "physical") != "physical":
+                    raise ConfigError(f"{where}: 安全解锁只支持物理寻址 physical")
+                steps.append(Step(name=str(s["name"]), security_access=security,
+                                  timeout_ms=s.get("timeout_ms"),
+                                  delay_after_ms=s.get("delay_after_ms")))
+                continue
+            if "request" not in s:
+                raise ConfigError(f"{where}.request: 缺失")
             request = parse_hex_bytes(s["request"], f"{where}.request")
             expect = (parse_hex_bytes(s["expect"], f"{where}.expect")
                       if s.get("expect") is not None else None)
@@ -209,7 +225,27 @@ def run_flow(cfg: dict, driver, run_dir):
             rec.event(f"流程开始：共 {len(steps)} 步，on_fail={cfg['on_fail']}")
             for i, step in enumerate(steps, 1):
                 counters["total"] += 1
-                if step.addressing == "functional":
+                if step.security_access is not None:
+                    lvl = LEVELS[step.security_access]
+                    log(f"[{i}] {step.name} 安全解锁（{step.security_access} 级）")
+                    try:
+                        seed, key, result = perform_unlock(uds, step.security_access,
+                                                           timeout_ms=step.timeout_ms, log=log)
+                    except UnlockError as e:
+                        result, verdict = UdsResult(), "FAIL"
+                        log(f"[{i}] {step.name} -> {e} 判定 FAIL")
+                    else:
+                        ok = (result.response is not None
+                              and result.response.startswith(bytes([0x67, lvl.key_sub])))
+                        verdict = ("PASS" if ok
+                                   else "TIMEOUT" if result.timeout else "FAIL")
+                        log(f"[{i}] {step.name} -> "
+                            f"{result.response.hex().upper() if result.response else '无响应'}"
+                            f" 判定 {verdict}"
+                            + (f"（NRC 0x{result.nrc:02X}）" if result.nrc is not None else ""))
+                    rec.step(i, step.name, "physical",
+                             f"27{lvl.seed_sub:02X}+27{lvl.key_sub:02X}", result, verdict)
+                elif step.addressing == "functional":
                     frames = encode(step.request, cfg["can"]["fd"])
                     for f in frames:
                         frame = CanFrame(diag["functional_id"], f,
@@ -224,15 +260,16 @@ def run_flow(cfg: dict, driver, run_dir):
                     time.sleep(delay_s(step))
                     continue
 
-                log(f"[{i}] {step.name} 发送 {step.request.hex().upper()}"
-                    f"（期望 {step.expect.hex().upper() if step.expect else '无'}）")
-                result = uds.request(step.request, timeout_ms=step.timeout_ms)
-                verdict = judge(step, result)
-                rec.step(i, step.name, step.addressing, step.request.hex().upper(), result, verdict)
-                log(f"[{i}] {step.name} -> "
-                    f"{result.response.hex().upper() if result.response else '无响应'}"
-                    f" 判定 {verdict}"
-                    + (f"（NRC 0x{result.nrc:02X}）" if result.nrc is not None else ""))
+                else:
+                    log(f"[{i}] {step.name} 发送 {step.request.hex().upper()}"
+                        f"（期望 {step.expect.hex().upper() if step.expect else '无'}）")
+                    result = uds.request(step.request, timeout_ms=step.timeout_ms)
+                    verdict = judge(step, result)
+                    rec.step(i, step.name, step.addressing, step.request.hex().upper(), result, verdict)
+                    log(f"[{i}] {step.name} -> "
+                        f"{result.response.hex().upper() if result.response else '无响应'}"
+                        f" 判定 {verdict}"
+                        + (f"（NRC 0x{result.nrc:02X}）" if result.nrc is not None else ""))
                 if verdict == "PASS":
                     counters["pass"] += 1
                 elif verdict == "FAIL":

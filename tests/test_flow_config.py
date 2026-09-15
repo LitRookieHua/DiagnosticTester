@@ -238,3 +238,54 @@ def test_judge_timeout_and_no_expect():
     assert judge(s, UdsResult(timeout=True, elapsed_ms=50)) == "PASS"  # 无期望即记录
     s2 = S(); s2.expect = bytes.fromhex("5003")
     assert judge(s2, UdsResult(timeout=True)) == "TIMEOUT"
+
+SEC_OK = """
+can: {device: USBCANFD-200U, channel: 0, fd: true, baudrate: 500000}
+diagnostic: {request_id: 0x70C, response_id: 0x78C, functional_id: 0x7DF}
+timing: {p2_ms: 100, p2star_ms: 1000, step_delay_ms: 0}
+steps:
+  - {name: 解锁app, security_access: app}
+on_fail: abort
+"""
+
+
+def test_security_step_loads(tmp_path):
+    cfg = load_config(write(tmp_path, SEC_OK))
+    s = cfg["steps"][0]
+    assert s.security_access == "app"
+    assert s.request is None
+    assert s.expect is None
+
+
+def test_security_step_with_request_rejected(tmp_path):
+    text = SEC_OK.replace(
+        "- {name: 解锁app, security_access: app}",
+        '- {name: 解锁app, security_access: app, request: "2701"}')
+    with pytest.raises(ConfigError) as e:
+        load_config(write(tmp_path, text))
+    assert "security_access" in str(e.value)
+
+
+def test_security_step_with_expect_rejected(tmp_path):
+    text = SEC_OK.replace(
+        "- {name: 解锁app, security_access: app}",
+        '- {name: 解锁app, security_access: app, expect: "6702"}')
+    with pytest.raises(ConfigError) as e:
+        load_config(write(tmp_path, text))
+    assert "security_access" in str(e.value)
+
+
+def test_security_step_bad_level_rejected(tmp_path):
+    text = SEC_OK.replace("security_access: app", "security_access: ota")
+    with pytest.raises(ConfigError) as e:
+        load_config(write(tmp_path, text))
+    assert "security_access" in str(e.value)
+
+
+def test_security_step_functional_rejected(tmp_path):
+    text = SEC_OK.replace(
+        "- {name: 解锁app, security_access: app}",
+        "- {name: 解锁app, security_access: app, addressing: functional}")
+    with pytest.raises(ConfigError) as e:
+        load_config(write(tmp_path, text))
+    assert "physical" in str(e.value)
