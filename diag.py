@@ -52,11 +52,22 @@ def new_run_dir(prefix: str) -> Path:
     raise RuntimeError(f"运行目录碰撞超过 100 个候选：{base}")
 
 
+def config_project(config_path) -> str:
+    """日志前缀用的项目名：configs/<项目>/x.yaml 取子目录名，
+    configs 根下的配置（example 等）取配置文件名。"""
+    p = Path(config_path)
+    parent = p.parent.name
+    if parent in ("", ".", "configs"):
+        return p.stem
+    return parent
+
+
 def cmd_run(args):
     cfg = load_config(args.config)
     tc = load_testcase(args.testcase, cfg)
     driver = make_driver(cfg)
-    run_dir = new_run_dir(Path(args.testcase).stem)
+    prefix = f"{config_project(args.config)}_{Path(args.testcase).stem}"
+    run_dir = new_run_dir(prefix)
     print(f"运行目录：{run_dir}")
     try:
         counters = run_flow(cfg, tc, driver, run_dir)
@@ -77,13 +88,14 @@ def build_transport(cfg, driver, rec):
 
 
 @contextmanager
-def open_session(cfg, prefix):
+def open_session(cfg, project: str, prefix: str):
     """probe/chat/unlock 共用的会话资源：driver → 记录器 → 传输 → UDS 客户端，退出时逆序收尾。
 
-    run_flow 自管 transport（与步骤执行耦合），cmd_run 不走此入口。
+    日志目录前缀 = <项目名>_<命令名>。run_flow 自管 transport（与步骤执行
+    耦合），cmd_run 不走此入口。
     """
     driver = make_driver(cfg)
-    rec = Recorder(new_run_dir(prefix))
+    rec = Recorder(new_run_dir(f"{project}_{prefix}"))
     transport = None
     try:
         transport = build_transport(cfg, driver, rec)
@@ -100,7 +112,7 @@ def open_session(cfg, prefix):
 def cmd_probe(args):
     cfg = load_config(args.config)
     request = parse_hex_bytes(args.request, "request")
-    with open_session(cfg, "probe") as (_driver, _rec, _transport, uds):
+    with open_session(cfg, config_project(args.config), "probe") as (_driver, _rec, _transport, uds):
         r = uds.request(request)
         print(f"响应：{r.response.hex().upper() if r.response else '超时无响应'}"
               + (f"（NRC 0x{r.nrc:02X}）" if r.nrc is not None else ""))
@@ -117,7 +129,7 @@ def cmd_unlock(args):
     if args.level not in levels:
         print(f"未知安全等级 {args.level!r}，可选 {sorted(levels)}", file=sys.stderr)
         return 2
-    with open_session(cfg, "unlock") as (_driver, rec, _transport, uds):
+    with open_session(cfg, config_project(args.config), "unlock") as (_driver, rec, _transport, uds):
         log = rec.event
         level = levels[args.level]
         log(f"安全解锁（{args.level} 级）")
@@ -141,7 +153,7 @@ def cmd_unlock(args):
 def cmd_chat(args):
     cfg = load_config(args.config)
     levels = cfg["security_levels"]
-    with open_session(cfg, "chat") as (_driver, rec, _transport, uds):
+    with open_session(cfg, config_project(args.config), "chat") as (_driver, rec, _transport, uds):
         print(f"交互模式（日志：{rec.run_dir}）。输入十六进制请求如 22F195，"
               f"unlock <{'/'.join(sorted(levels))}> 解锁，:q 退出")
         while True:

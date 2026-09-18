@@ -107,7 +107,7 @@ security:
     PASS 3 / FAIL 0 / TIMEOUT 0 / 共 3/3     # 退出码 0
     PASS 1 / FAIL 1 / TIMEOUT 0 / 共 2/3     # 有 FAIL/TIMEOUT，退出码 1
 
-结果同时落盘到 `logs/<用例名>_<时间戳>/`（见「输出文件」）。
+结果同时落盘到 `logs/<项目>_<用例名>_<时间戳>/`（见「输出文件」）。
 
 ## chat — 交互模式
 
@@ -148,8 +148,9 @@ security:
 
 ## 输出文件
 
-每次运行生成 `logs/<用例名>_<时间戳>/`（chat/probe/unlock 的目录前缀
-为命令名）：
+每次运行生成 `logs/<项目>_<前缀>_<时间戳>/`（前缀：run 为用例名，
+chat/probe/unlock 为命令名；项目名取配置的子目录，如
+`configs/N60/n60.yaml` → N60，configs 根下的配置取文件名）：
 
 - `run.log`  人读文本流水（步骤、判定、NRC、0x78 事件、解锁种子/密钥）
 - `result.csv`  UDS 级结果表（seq/步骤/请求/响应/NRC/判定/耗时/时间戳）

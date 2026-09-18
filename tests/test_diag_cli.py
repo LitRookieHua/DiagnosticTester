@@ -65,8 +65,10 @@ def run_cli(tmp_path, monkeypatch):
     argv 中的 "tc" 占位符替换为用例文件路径。"""
     monkeypatch.setattr(diag, "LOGS_DIR", tmp_path)
 
-    def runner(argv, ecu=None, cfg_text=CONFIG, tc_text=TESTCASE):
-        cfg_path = tmp_path / "cfg.yaml"
+    def runner(argv, ecu=None, cfg_text=CONFIG, tc_text=TESTCASE,
+               cfg_name="cfg.yaml"):
+        cfg_path = tmp_path / cfg_name
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
         cfg_path.write_text(cfg_text, encoding="utf-8")
         tc_path = tmp_path / "tc.yaml"
         tc_path.write_text(tc_text, encoding="utf-8")
@@ -98,11 +100,27 @@ def test_run_smoke(run_cli):
     assert "PASS 1 / FAIL 0 / TIMEOUT 0 / 共 1/1" in out
 
 
-def test_run_log_dir_uses_testcase_stem(run_cli, tmp_path):
-    # 日志目录前缀取 testcase 文件名，而非 config
+def test_run_log_dir_uses_project_and_testcase_stem(run_cli, tmp_path):
+    # 日志目录前缀 = 项目名（config 子目录）_ testcase 文件名
     mock = MockCanDriver()
-    run_cli(["run", "tc"], ecu=mock)  # 无响应超时也无妨，目录已建
-    assert any(p.is_dir() and p.name.startswith("tc_")
+    run_cli(["run", "tc"], ecu=mock, cfg_name="N60/n60.yaml")
+    assert any(p.is_dir() and p.name.startswith("N60_tc_")
+               for p in tmp_path.iterdir())
+
+
+def test_run_log_dir_configs_root_uses_config_stem(run_cli, tmp_path):
+    # 配置直接放在 configs/ 根下时项目名取配置文件名
+    mock = MockCanDriver()
+    run_cli(["run", "tc"], ecu=mock, cfg_name="configs/cfg.yaml")
+    assert any(p.is_dir() and p.name.startswith("cfg_tc_")
+               for p in tmp_path.iterdir())
+
+
+def test_probe_log_dir_uses_project(run_cli, tmp_path):
+    # chat/probe/unlock 的日志目录 = 项目名_命令名
+    mock = MockCanDriver()  # 无响应超时无妨，目录已建
+    run_cli(["probe", "1003"], ecu=mock, cfg_name="RX/rx.yaml")
+    assert any(p.is_dir() and p.name.startswith("RX_probe_")
                for p in tmp_path.iterdir())
 
 
