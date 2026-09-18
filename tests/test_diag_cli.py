@@ -106,7 +106,7 @@ def test_run_log_dir_uses_testcase_stem(run_cli, tmp_path):
                for p in tmp_path.iterdir())
 
 
-def test_run_missing_config_rejected(run_cli):
+def test_run_missing_testcase_rejected(run_cli):
     # 缺 testcase 位置参数（fixture 恒附 --config）：argparse 报错 SystemExit(2)
     with pytest.raises(SystemExit) as e:
         run_cli(["run"])

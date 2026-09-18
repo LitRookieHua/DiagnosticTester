@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Callable
 
 from cryptography.hazmat.primitives import cmac
 from cryptography.hazmat.primitives.ciphers import algorithms
