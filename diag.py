@@ -1,10 +1,10 @@
 """诊断测试工具 CLI。
 
 用法：
-  python diag.py run <flow.yaml>                      跑配置流程
-  python diag.py chat --config <flow.yaml>            交互模式
-  python diag.py probe --config <flow.yaml> 22F195   单发一条请求
-  python diag.py unlock --config <flow.yaml> app      0x27 安全解锁
+  python diag.py run <testcase.yaml> --config <config.yaml>   跑测试用例
+  python diag.py chat --config <config.yaml>                  交互模式
+  python diag.py probe --config <config.yaml> 22F195          单发一条请求
+  python diag.py unlock --config <config.yaml> app             0x27 安全解锁
 """
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from flow import ConfigError, load_config, parse_hex_bytes, run_flow
+from flow import ConfigError, load_config, load_testcase, parse_hex_bytes, run_flow
 from isotp import IsoTpError, IsoTpTransport
 from recorder import Recorder
-from security import LEVELS, UnlockError, perform_unlock
+from security import UnlockError, perform_unlock
 from uds import UdsClient
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -54,15 +54,16 @@ def new_run_dir(prefix: str) -> Path:
 
 def cmd_run(args):
     cfg = load_config(args.config)
+    tc = load_testcase(args.testcase, cfg)
     driver = make_driver(cfg)
-    run_dir = new_run_dir(Path(args.config).stem)
+    run_dir = new_run_dir(Path(args.testcase).stem)
     print(f"运行目录：{run_dir}")
     try:
-        counters = run_flow(cfg, driver, run_dir)
+        counters = run_flow(cfg, tc, driver, run_dir)
     finally:
         driver.close()
     print(f"PASS {counters['pass']} / FAIL {counters['fail']} "
-          f"/ TIMEOUT {counters['timeout']} / 共 {counters['total']}/{len(cfg['steps'])}")
+          f"/ TIMEOUT {counters['timeout']} / 共 {counters['total']}/{len(tc['steps'])}")
     return 0 if counters["fail"] == 0 and counters["timeout"] == 0 else 1
 
 
@@ -77,7 +78,7 @@ def build_transport(cfg, driver, rec):
 
 @contextmanager
 def open_session(cfg, prefix):
-    """probe/chat 共用的会话资源：driver → 记录器 → 传输 → UDS 客户端，退出时逆序收尾。
+    """probe/chat/unlock 共用的会话资源：driver → 记录器 → 传输 → UDS 客户端，退出时逆序收尾。
 
     run_flow 自管 transport（与步骤执行耦合），cmd_run 不走此入口。
     """
@@ -97,7 +98,7 @@ def open_session(cfg, prefix):
 
 
 def cmd_probe(args):
-    cfg = load_config(args.config, need_steps=False)
+    cfg = load_config(args.config)
     request = parse_hex_bytes(args.request, "request")
     with open_session(cfg, "probe") as (_driver, _rec, _transport, uds):
         r = uds.request(request)
@@ -111,12 +112,17 @@ def cmd_probe(args):
 
 
 def cmd_unlock(args):
-    cfg = load_config(args.config, need_steps=False)
+    cfg = load_config(args.config)
+    levels = cfg["security_levels"]
+    if args.level not in levels:
+        print(f"未知安全等级 {args.level!r}，可选 {sorted(levels)}", file=sys.stderr)
+        return 2
     with open_session(cfg, "unlock") as (_driver, rec, _transport, uds):
         log = rec.event
+        level = levels[args.level]
         log(f"安全解锁（{args.level} 级）")
         try:
-            seed, key, result = perform_unlock(uds, args.level, log=log)
+            seed, key, result = perform_unlock(uds, level, log=log)
         except UnlockError as e:
             log(f"安全解锁[{args.level}] 失败：{e}")
             print(f"解锁失败：{e}")
@@ -133,10 +139,11 @@ def cmd_unlock(args):
 
 
 def cmd_chat(args):
-    cfg = load_config(args.config, need_steps=False)
+    cfg = load_config(args.config)
+    levels = cfg["security_levels"]
     with open_session(cfg, "chat") as (_driver, rec, _transport, uds):
         print(f"交互模式（日志：{rec.run_dir}）。输入十六进制请求如 22F195，"
-              f"unlock <{'/'.join(sorted(LEVELS))}> 解锁，:q 退出")
+              f"unlock <{'/'.join(sorted(levels))}> 解锁，:q 退出")
         while True:
             try:
                 line = input("diag> ").strip()
@@ -149,12 +156,13 @@ def cmd_chat(args):
             parts = line.split()
             if parts[0].lower() == "unlock":
                 level = parts[1] if len(parts) > 1 else ""
-                if level not in LEVELS:
-                    print(f"未知等级 {level!r}，可选 {sorted(LEVELS)}")
+                if level not in levels:
+                    print(f"未知等级 {level!r}，可选 {sorted(levels)}")
                     continue
                 rec.event(f"手动解锁（{level} 级）")
                 try:
-                    seed, key, result = perform_unlock(uds, level, log=rec.event)
+                    seed, key, result = perform_unlock(uds, levels[level],
+                                                       log=rec.event)
                 except UnlockError as e:
                     print(f"解锁失败：{e}")
                     continue
@@ -194,8 +202,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="UDS 诊断测试工具")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_run = sub.add_parser("run", help="跑配置流程")
-    p_run.add_argument("config")
+    p_run = sub.add_parser("run", help="跑测试用例")
+    p_run.add_argument("testcase")
+    p_run.add_argument("--config", required=True, help="项目配置 yaml")
     p_run.set_defaults(func=cmd_run)
 
     p_chat = sub.add_parser("chat", help="交互模式")
@@ -209,8 +218,8 @@ def main(argv=None):
 
     p_unlock = sub.add_parser("unlock", help="0x27 安全解锁")
     p_unlock.add_argument("--config", required=True)
-    p_unlock.add_argument("level", choices=sorted(LEVELS),
-                          help="安全等级：app / boot / develop")
+    p_unlock.add_argument("level", help="安全等级（来自配置 security 节，"
+                                        "develop 内置）")
     p_unlock.set_defaults(func=cmd_unlock)
 
     args = parser.parse_args(argv)

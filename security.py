@@ -1,44 +1,55 @@
-"""UDS 0x27 安全解锁：种子/密钥计算与完整解锁序列。
+"""UDS 0x27 安全解锁：算法注册表、等级构建与完整解锁序列。
 
-算法对齐 mcu_app_j6/cpj_baic/dia_cfg b81vs 变体（与 n60 实现一致）：
-- app/boot（DF+Token 认证）：SK = AES-CMAC(KeyFactor, DF)、Token = AES-CMAC(SK, Seed)，
-  发送 Key = DF(16B) || Token(16B)；DF 由客户端任选。
-- develop：取种子请求携带 16 字节魔数，Key = AES-CMAC(开发密钥, Seed)（16B）。
+算法按项目不同在配置 security 节中选择（algorithm 字段），密钥材料
+（key factor / mask table / 魔数）全部来自配置参数；develop（61/62，
+公司内部通用）为内置默认，配置可覆盖。
+
+算法对照源码：
+- aes_cmac_df_token / aes_cmac_seed — cpj_baic n60 变体
+- cmc_mask_app / cmc_mask_boot — cpj_cmc（RX）
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Callable
 
 from cryptography.hazmat.primitives import cmac
 from cryptography.hazmat.primitives.ciphers import algorithms
 
 from uds import UdsClient
 
-# BAIC 规范 key factor（b81vs/n60/b70ks 通用）
-KF_UDS = bytes.fromhex("5E4741955FEF78D046D754F3CDEF170B")
-KF_BOOT = bytes.fromhex("A028E273415E3050B8DEF560364A03BD")
+# 公司内部通用 develop（61/62）参数
 DEV_KEY = bytes.fromhex("FF0200020503191039490D98AD52DEFF")
-# develop 级取种子请求需携带的魔数（客户端权限校验）
 DEV_MAGIC = bytes.fromhex("CFBB609DBC8293CCA532D21409774D84")
 
-SEED_LEN = 16
+LEVEL_FIELDS = {"seed_sub", "key_sub", "algorithm", "params"}
 
 
 @dataclass(frozen=True)
 class SecLevel:
+    """一个安全等级：子功能号 + 算法 + 参数。长度由算法固有长度决定。"""
+
     name: str
     seed_sub: int
     key_sub: int
+    seed_len: int
     key_len: int
-    key_factor: bytes | None  # None 表示 develop 单层 CMAC
+    algorithm: str
+    params: dict
 
+    def seed_request(self) -> bytes:
+        req = bytes([0x27, self.seed_sub])
+        magic = self.params.get("magic")
+        if magic:
+            req += magic
+        return req
 
-LEVELS = {
-    "app": SecLevel("app", 0x01, 0x02, 32, KF_UDS),
-    "boot": SecLevel("boot", 0x11, 0x12, 32, KF_BOOT),
-    "develop": SecLevel("develop", 0x61, 0x62, 16, None),
-}
+    def compute_key(self, seed: bytes, df: bytes | None = None) -> bytes:
+        if len(seed) != self.seed_len:
+            raise ValueError(f"{self.name}: 种子长度应为 {self.seed_len}，"
+                             f"当前 {len(seed)}")
+        return ALGORITHMS[self.algorithm]["key"](seed, self.params, df)
 
 
 def _cmac(key: bytes, data: bytes) -> bytes:
@@ -47,73 +58,16 @@ def _cmac(key: bytes, data: bytes) -> bytes:
     return c.finalize()
 
 
-def _level(level: str) -> SecLevel:
-    if level not in LEVELS:
-        raise ValueError(f"未知安全等级 {level}，可选 {sorted(LEVELS)}")
-    return LEVELS[level]
-
-
-def seed_request(level: str) -> bytes:
-    """取种子请求：develop 级携带魔数。"""
-    lvl = _level(level)
-    req = bytes([0x27, lvl.seed_sub])
-    if lvl.key_factor is None:
-        req += DEV_MAGIC
-    return req
-
-
-def compute_key(level: str, seed: bytes, df: bytes | None = None) -> bytes:
-    """由种子计算密钥。app/boot 的 DF 缺省随机生成并内嵌在返回值前 16 字节。"""
-    lvl = _level(level)
-    if len(seed) != SEED_LEN:
-        raise ValueError(f"种子长度应为 {SEED_LEN}，当前 {len(seed)}")
-    if lvl.key_factor is None:
-        return _cmac(DEV_KEY, seed)
+def _key_aes_cmac_df_token(seed: bytes, params: dict, df: bytes | None) -> bytes:
+    """N60 app/boot：SK=CMAC(KF,DF)、Key=DF||CMAC(SK,Seed)；DF 缺省随机。"""
     df = os.urandom(16) if df is None else df
-    sk = _cmac(lvl.key_factor, df)
+    sk = _cmac(params["key_factor"], df)
     return df + _cmac(sk, seed)
 
 
-class UnlockError(Exception):
-    """解锁序列在种子阶段失败（超时/负响应/响应格式异常）。timeout 标记失败原因。"""
-
-    def __init__(self, msg, timeout: bool = False):
-        super().__init__(msg)
-        self.timeout = timeout
-
-
-def perform_unlock(uds: UdsClient, level: str, timeout_ms: int | None = None,
-                   log=None):
-    """执行完整 0x27 序列：取种子 → 计算密钥 → 发密钥。
-
-    返回 (seed, key, result)；result 为密钥请求的 UdsResult（response
-    以 67+key_sub 开头即成功）。种子阶段失败抛 UnlockError。
-    """
-    log = log or (lambda *a, **k: None)
-    lvl = _level(level)
-
-    r = uds.request(seed_request(level), timeout_ms=timeout_ms)
-    if r.timeout:
-        raise UnlockError(f"取种子超时（27 {lvl.seed_sub:02X}）", timeout=True)
-    if r.nrc is not None:
-        raise UnlockError(f"取种子负响应 NRC 0x{r.nrc:02X}")
-    expect = bytes([0x67, lvl.seed_sub])
-    if r.response is None or not r.response.startswith(expect) \
-            or len(r.response) < len(expect) + SEED_LEN:
-        raise UnlockError(f"取种子响应异常："
-                          f"{r.response.hex().upper() if r.response else '无'}")
-    seed = r.response[len(expect):len(expect) + SEED_LEN]
-    log(f"安全解锁[{level}] 种子 {seed.hex().upper()}")
-
-    key = compute_key(level, seed)
-    log(f"安全解锁[{level}] 密钥 {key.hex().upper()}")
-    result = uds.request(bytes([0x27, lvl.key_sub]) + key, timeout_ms=timeout_ms)
-    return seed, key, result
-
-
-# ===== RX（cpj_cmc）mask_table 算法：对照 C 源码逐行移植 =====
-# 注意 u32 截断语义：中间乘法结果按 uint32 回绕；密钥 4 字节大端发送
-# （C 侧按 Key[0]<<24|Key[1]<<16|Key[2]<<8|Key[3] 组装比较）。
+def _key_aes_cmac_seed(seed: bytes, params: dict, df: bytes | None) -> bytes:
+    """develop：Key=CMAC(key,Seed)。"""
+    return _cmac(params["key"], seed)
 
 
 def seed_to_key_app(seed_u16: int, mask_table: list[int]) -> int:
@@ -143,3 +97,158 @@ def seed_to_key_boot(seed_u16: int, mask_table: list[int]) -> int:
     else:
         t = (t << 1) & 0xFFFFFFFF
     return (t ^ chosen) & 0xFFFFFFFF
+
+
+def _key_cmc_mask_app(seed: bytes, params: dict, df: bytes | None) -> bytes:
+    """RX app：mask_table 迭代运算，密钥 4 字节大端。"""
+    return seed_to_key_app(int.from_bytes(seed, "big"),
+                           params["mask_table"]).to_bytes(4, "big")
+
+
+def _key_cmc_mask_boot(seed: bytes, params: dict, df: bytes | None) -> bytes:
+    """RX boot：密钥 4 字节大端。"""
+    return seed_to_key_boot(int.from_bytes(seed, "big"),
+                            params["mask_table"]).to_bytes(4, "big")
+
+
+# 算法注册表：计算函数 + 固有 (seed_len, key_len) + params 键 → hex 字节数
+# （mask_table 特殊：16 项 u32 列表）
+ALGORITHMS: dict[str, dict] = {
+    "aes_cmac_df_token": {"key": _key_aes_cmac_df_token,
+                          "seed_len": 16, "key_len": 32,
+                          "params": {"key_factor": 16}},
+    "aes_cmac_seed": {"key": _key_aes_cmac_seed, "seed_len": 16, "key_len": 16,
+                      "params": {"key": 16, "magic": 16}},
+    "cmc_mask_app": {"key": _key_cmc_mask_app, "seed_len": 2, "key_len": 4,
+                     "params": {"mask_table": 16}},
+    "cmc_mask_boot": {"key": _key_cmc_mask_boot, "seed_len": 2, "key_len": 4,
+                      "params": {"mask_table": 16}},
+}
+
+
+def _hex(value, n: int, where: str) -> bytes:
+    if not isinstance(value, str):
+        raise ValueError(f"{where}: 应为 {n} 字节十六进制字符串，"
+                         f"当前是 {type(value).__name__}: {value!r}")
+    try:
+        b = bytes.fromhex(value.replace(" ", ""))
+    except ValueError:
+        raise ValueError(f"{where}: '{value}' 不是合法十六进制")
+    if len(b) != n:
+        raise ValueError(f"{where}: 应为 {n} 字节，当前 {len(b)}")
+    return b
+
+
+def _u32(value, where: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{where}: 应为 u32")
+    if isinstance(value, int):
+        i = value
+    elif isinstance(value, str):
+        try:
+            i = int(value.replace(" ", ""), 16)
+        except ValueError:
+            raise ValueError(f"{where}: '{value}' 不是合法十六进制 u32")
+    else:
+        raise ValueError(f"{where}: 应为 u32（int 或十六进制字符串）")
+    if not 0 <= i <= 0xFFFFFFFF:
+        raise ValueError(f"{where}: 超出 u32 范围")
+    return i
+
+
+def _build_level(name: str, item: dict) -> SecLevel:
+    unknown = sorted(set(item) - LEVEL_FIELDS)
+    if unknown:
+        raise ValueError(f"{name}.{unknown[0]}: 未知字段")
+    for k in ("seed_sub", "key_sub", "algorithm"):
+        if k not in item:
+            raise ValueError(f"{name}.{k}: 缺失")
+    seed_sub, key_sub = item["seed_sub"], item["key_sub"]
+    for k, v in (("seed_sub", seed_sub), ("key_sub", key_sub)):
+        if isinstance(v, bool) or not isinstance(v, int) \
+                or not 0x01 <= v <= 0x7E:
+            raise ValueError(f"{name}.{k}: 应为 0x01-0x7E 的整数，当前 {v!r}")
+    if key_sub != seed_sub + 1:
+        raise ValueError(f"{name}.key_sub: 必须为 seed_sub+1"
+                         f"（{seed_sub:#04x}→{seed_sub + 1:#04x}），"
+                         f"当前 {key_sub!r}")
+    algo = item["algorithm"]
+    if algo not in ALGORITHMS:
+        raise ValueError(f"{name}.algorithm: 只能是 {sorted(ALGORITHMS)}")
+    spec = ALGORITHMS[algo]
+    raw_params = item.get("params", {})
+    if not isinstance(raw_params, dict):
+        raise ValueError(f"{name}.params: 必须是映射")
+    unknown = sorted(set(raw_params) - set(spec["params"]))
+    if unknown:
+        raise ValueError(f"{name}.params.{unknown[0]}: 未知参数")
+    params = {}
+    for k, n in spec["params"].items():
+        if k not in raw_params:
+            raise ValueError(f"{name}.params.{k}: 缺失")
+        if k == "mask_table":
+            tbl = raw_params[k]
+            if not isinstance(tbl, list) or len(tbl) != n:
+                raise ValueError(f"{name}.params.mask_table: 应为 {n} 项列表")
+            params[k] = [_u32(v, f"{name}.params.mask_table[{i}]")
+                         for i, v in enumerate(tbl)]
+        else:
+            params[k] = _hex(raw_params[k], n, f"{name}.params.{k}")
+    return SecLevel(name=name, seed_sub=seed_sub, key_sub=key_sub,
+                    seed_len=spec["seed_len"], key_len=spec["key_len"],
+                    algorithm=algo, params=params)
+
+
+def levels_from_config(raw) -> dict[str, SecLevel]:
+    """配置 security 节 → {等级名: SecLevel}；develop 缺省内置，可覆盖。"""
+    levels: dict[str, SecLevel] = {}
+    if raw is not None:
+        if not isinstance(raw, dict):
+            raise ValueError("必须是映射（等级名 → 等级定义）")
+        for name, item in raw.items():
+            if not isinstance(item, dict):
+                raise ValueError(f"{name}: 必须是映射")
+            levels[str(name)] = _build_level(str(name), item)
+    if "develop" not in levels:
+        levels["develop"] = _build_level("develop", {
+            "seed_sub": 0x61, "key_sub": 0x62, "algorithm": "aes_cmac_seed",
+            "params": {"key": DEV_KEY.hex().upper(),
+                       "magic": DEV_MAGIC.hex().upper()}})
+    return levels
+
+
+class UnlockError(Exception):
+    """解锁序列在种子阶段失败（超时/负响应/响应格式异常）。timeout 标记失败原因。"""
+
+    def __init__(self, msg, timeout: bool = False):
+        super().__init__(msg)
+        self.timeout = timeout
+
+
+def perform_unlock(uds: UdsClient, level: SecLevel, timeout_ms: int | None = None,
+                   log=None):
+    """执行完整 0x27 序列：取种子 → 计算密钥 → 发密钥。
+
+    返回 (seed, key, result)；result 为密钥请求的 UdsResult（response
+    以 67+key_sub 开头即成功）。种子阶段失败抛 UnlockError。
+    """
+    log = log or (lambda *a, **k: None)
+
+    r = uds.request(level.seed_request(), timeout_ms=timeout_ms)
+    if r.timeout:
+        raise UnlockError(f"取种子超时（27 {level.seed_sub:02X}）", timeout=True)
+    if r.nrc is not None:
+        raise UnlockError(f"取种子负响应 NRC 0x{r.nrc:02X}")
+    expect = bytes([0x67, level.seed_sub])
+    if r.response is None or not r.response.startswith(expect) \
+            or len(r.response) < len(expect) + level.seed_len:
+        raise UnlockError(f"取种子响应异常："
+                          f"{r.response.hex().upper() if r.response else '无'}")
+    seed = r.response[len(expect):len(expect) + level.seed_len]
+    log(f"安全解锁[{level.name}] 种子 {seed.hex().upper()}")
+
+    key = level.compute_key(seed)
+    log(f"安全解锁[{level.name}] 密钥 {key.hex().upper()}")
+    result = uds.request(bytes([0x27, level.key_sub]) + key,
+                         timeout_ms=timeout_ms)
+    return seed, key, result

@@ -1,4 +1,9 @@
-"""流程配置：加载、校验、步骤执行。"""
+"""配置与测试用例：加载、校验、流程执行。
+
+配置（configs/<项目>/<项目>.yaml）：can / diagnostic / timing / security，
+由 load_config 加载；测试用例（testcase/<项目>/<流程>.yaml）：
+steps / on_fail / 可选 timing 覆盖，由 load_testcase(path, cfg) 加载。
+"""
 from __future__ import annotations
 
 import re
@@ -11,7 +16,7 @@ import yaml
 from can_driver import CanFrame
 from isotp import IsoTpTransport, encode
 from recorder import Recorder
-from security import LEVELS, UnlockError, perform_unlock
+from security import UnlockError, levels_from_config, perform_unlock
 from uds import UdsClient, UdsResult
 
 HEX_RE = re.compile(r"^[0-9A-Fa-f]+$")
@@ -20,6 +25,8 @@ STEP_FIELDS = {"name", "request", "expect", "timeout_ms", "delay_after_ms",
 CAN_FIELDS = {"device", "channel", "fd", "baudrate", "data_baudrate"}
 DIAGNOSTIC_FIELDS = {"request_id", "response_id", "functional_id"}
 TIMING_FIELDS = {"p2_ms", "p2star_ms", "step_delay_ms"}
+CONFIG_FIELDS = {"can", "diagnostic", "timing", "security"}
+TESTCASE_FIELDS = {"steps", "on_fail", "timing"}
 
 
 class ConfigError(Exception):
@@ -83,17 +90,38 @@ def _check_num(d, k, path, min_=0):
         raise ConfigError(f"{path}.{k}: 不能小于 {min_}，当前 {v}")
 
 
-def load_config(path, need_steps: bool = True) -> dict:
+def _load_yaml(path, what: str) -> dict:
     p = Path(path)
     if not p.exists():
-        raise ConfigError(f"配置文件不存在：{path}")
+        raise ConfigError(f"{what}不存在：{path}")
     try:
         raw = yaml.safe_load(p.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise ConfigError(f"YAML 语法错误：{e}")
     if not isinstance(raw, dict):
-        raise ConfigError("配置根节点必须是映射")
-    unknown = set(raw) - {"can", "diagnostic", "timing", "steps", "on_fail"}
+        raise ConfigError("根节点必须是映射")
+    return raw
+
+
+def _validate_timing(raw, base: dict | None = None) -> dict:
+    """校验 timing 节并补默认值；给 base 时为覆盖合并（缺省键继承 base）。"""
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ConfigError("timing: 必须是映射")
+    _reject_unknown_keys(raw, TIMING_FIELDS, "timing")
+    for k in ("p2_ms", "p2star_ms", "step_delay_ms"):
+        _check_num(raw, k, "timing")
+    timing = (dict(base) if base is not None
+              else {"p2_ms": 50, "p2star_ms": 5000, "step_delay_ms": 100})
+    timing.update({k: v for k, v in raw.items() if v is not None})
+    return timing
+
+
+def load_config(path) -> dict:
+    """加载并校验项目配置（can/diagnostic/timing/security）。"""
+    raw = _load_yaml(path, "配置文件")
+    unknown = set(raw) - CONFIG_FIELDS
     if unknown:
         raise ConfigError(f"未知顶层字段 {sorted(unknown)}")
 
@@ -119,75 +147,84 @@ def load_config(path, need_steps: bool = True) -> dict:
             raise ConfigError(f"diagnostic.{k}: 缺失")
         diag[k] = parse_id(diag[k], f"diagnostic.{k}")
     if diag.get("functional_id") is not None:
-        diag["functional_id"] = parse_id(diag["functional_id"], "diagnostic.functional_id")
+        diag["functional_id"] = parse_id(diag["functional_id"],
+                                         "diagnostic.functional_id")
 
-    timing = raw.get("timing")
-    if timing is None:
-        timing = {}
-    if not isinstance(timing, dict):
-        raise ConfigError("timing: 必须是映射")
-    _reject_unknown_keys(timing, TIMING_FIELDS, "timing")
-    for k in ("p2_ms", "p2star_ms", "step_delay_ms"):
-        _check_num(timing, k, "timing")
-    timing.setdefault("p2_ms", 50)
-    timing.setdefault("p2star_ms", 5000)
-    timing.setdefault("step_delay_ms", 100)
+    timing = _validate_timing(raw.get("timing"))
 
+    try:
+        security_levels = levels_from_config(raw.get("security"))
+    except ValueError as e:
+        raise ConfigError(f"security: {e}")
+
+    return {"can": can, "diagnostic": diag, "timing": timing,
+            "security_levels": security_levels}
+
+
+def _parse_steps(raw_steps, cfg: dict) -> list[Step]:
+    can, diag = cfg["can"], cfg["diagnostic"]
+    levels = cfg["security_levels"]
+    if not isinstance(raw_steps, list) or not raw_steps:
+        raise ConfigError("steps: 必须是非空列表")
+    steps = []
+    for i, s in enumerate(raw_steps):
+        where = f"steps[{i}]"
+        if not isinstance(s, dict):
+            raise ConfigError(f"{where}: 必须是映射")
+        unknown = set(s) - STEP_FIELDS
+        if unknown:
+            raise ConfigError(f"{where}: 未知字段 {sorted(unknown)}")
+        if "name" not in s:
+            raise ConfigError(f"{where}.name: 缺失")
+        for k in ("timeout_ms", "delay_after_ms"):
+            _check_num(s, k, where)
+        security = s.get("security_access")
+        if security is not None:
+            if "request" in s or "expect" in s:
+                raise ConfigError(f"{where}: security_access 步骤不支持 request/expect")
+            if security not in levels:
+                raise ConfigError(f"{where}.security_access: 只能是 {sorted(levels)}")
+            if s.get("addressing", "physical") != "physical":
+                raise ConfigError(f"{where}: 安全解锁只支持物理寻址 physical")
+            steps.append(Step(name=str(s["name"]), security_access=security,
+                              timeout_ms=s.get("timeout_ms"),
+                              delay_after_ms=s.get("delay_after_ms")))
+            continue
+        if "request" not in s:
+            raise ConfigError(f"{where}.request: 缺失")
+        request = parse_hex_bytes(s["request"], f"{where}.request")
+        expect = (parse_hex_bytes(s["expect"], f"{where}.expect")
+                  if s.get("expect") is not None else None)
+        addressing = s.get("addressing", "physical")
+        if addressing not in ("physical", "functional"):
+            raise ConfigError(f"{where}.addressing: 只能是 physical 或 functional")
+        if addressing == "functional":
+            if expect is not None:
+                raise ConfigError(f"{where}: 功能寻址步骤不支持 expect（发完即记，不做判定）")
+            if diag.get("functional_id") is None:
+                raise ConfigError(f"{where}: 功能寻址需要 diagnostic.functional_id")
+            sf_max = 62 if can["fd"] else 7
+            if len(request) > sf_max:
+                raise ConfigError(f"{where}: 功能寻址请求超过单帧上限 {sf_max} 字节")
+        steps.append(Step(name=str(s["name"]), request=request, expect=expect,
+                          timeout_ms=s.get("timeout_ms"),
+                          delay_after_ms=s.get("delay_after_ms"),
+                          addressing=addressing))
+    return steps
+
+
+def load_testcase(path, cfg: dict) -> dict:
+    """加载并校验测试用例（steps/on_fail/可选 timing 覆盖）。"""
+    raw = _load_yaml(path, "测试用例文件")
+    unknown = set(raw) - TESTCASE_FIELDS
+    if unknown:
+        raise ConfigError(f"未知顶层字段 {sorted(unknown)}")
+    timing = _validate_timing(raw.get("timing"), base=cfg["timing"])
     on_fail = raw.get("on_fail", "abort")
     if on_fail not in ("abort", "continue"):
         raise ConfigError("on_fail: 只能是 abort 或 continue")
-
-    steps = []
-    if need_steps:
-        raw_steps = raw.get("steps")
-        if not isinstance(raw_steps, list) or not raw_steps:
-            raise ConfigError("steps: 必须是非空列表")
-        for i, s in enumerate(raw_steps):
-            where = f"steps[{i}]"
-            if not isinstance(s, dict):
-                raise ConfigError(f"{where}: 必须是映射")
-            unknown = set(s) - STEP_FIELDS
-            if unknown:
-                raise ConfigError(f"{where}: 未知字段 {sorted(unknown)}")
-            if "name" not in s:
-                raise ConfigError(f"{where}.name: 缺失")
-            for k in ("timeout_ms", "delay_after_ms"):
-                _check_num(s, k, where)
-            security = s.get("security_access")
-            if security is not None:
-                if "request" in s or "expect" in s:
-                    raise ConfigError(f"{where}: security_access 步骤不支持 request/expect")
-                if security not in LEVELS:
-                    raise ConfigError(f"{where}.security_access: 只能是 {sorted(LEVELS)}")
-                if s.get("addressing", "physical") != "physical":
-                    raise ConfigError(f"{where}: 安全解锁只支持物理寻址 physical")
-                steps.append(Step(name=str(s["name"]), security_access=security,
-                                  timeout_ms=s.get("timeout_ms"),
-                                  delay_after_ms=s.get("delay_after_ms")))
-                continue
-            if "request" not in s:
-                raise ConfigError(f"{where}.request: 缺失")
-            request = parse_hex_bytes(s["request"], f"{where}.request")
-            expect = (parse_hex_bytes(s["expect"], f"{where}.expect")
-                      if s.get("expect") is not None else None)
-            addressing = s.get("addressing", "physical")
-            if addressing not in ("physical", "functional"):
-                raise ConfigError(f"{where}.addressing: 只能是 physical 或 functional")
-            if addressing == "functional":
-                if expect is not None:
-                    raise ConfigError(f"{where}: 功能寻址步骤不支持 expect（发完即记，不做判定）")
-                if diag.get("functional_id") is None:
-                    raise ConfigError(f"{where}: 功能寻址需要 diagnostic.functional_id")
-                sf_max = 62 if can["fd"] else 7
-                if len(request) > sf_max:
-                    raise ConfigError(f"{where}: 功能寻址请求超过单帧上限 {sf_max} 字节")
-            steps.append(Step(name=str(s["name"]), request=request, expect=expect,
-                              timeout_ms=s.get("timeout_ms"),
-                              delay_after_ms=s.get("delay_after_ms"),
-                              addressing=addressing))
-
-    return {"can": can, "diagnostic": diag, "timing": timing,
-            "steps": steps, "on_fail": on_fail}
+    steps = _parse_steps(raw.get("steps"), cfg)
+    return {"steps": steps, "on_fail": on_fail, "timing": timing}
 
 
 def judge(step: Step, r: UdsResult) -> str:
@@ -200,10 +237,13 @@ def judge(step: Step, r: UdsResult) -> str:
     return "FAIL"
 
 
-def run_flow(cfg: dict, driver, run_dir):
+def run_flow(cfg: dict, testcase: dict, driver, run_dir):
     """执行流程，返回汇总 dict（total/pass/fail/timeout）。driver 为已就绪的 CanDriver。"""
-    diag, timing = cfg["diagnostic"], cfg["timing"]
-    steps = cfg["steps"]
+    diag = cfg["diagnostic"]
+    timing = testcase["timing"]
+    steps = testcase["steps"]
+    on_fail = testcase["on_fail"]
+    levels = cfg["security_levels"]
 
     def delay_s(step) -> float:
         ms = step.delay_after_ms if step.delay_after_ms is not None else timing["step_delay_ms"]
@@ -217,26 +257,29 @@ def run_flow(cfg: dict, driver, run_dir):
         def log(msg):
             rec.event(msg)
 
-        transport = IsoTpTransport(driver, tx_id=diag["request_id"], rx_id=diag["response_id"],
+        transport = IsoTpTransport(driver, tx_id=diag["request_id"],
+                                   rx_id=diag["response_id"],
                                    is_fd=cfg["can"]["fd"], tap=tap, log=log)
         transport.start()
         try:
-            uds = UdsClient(transport, p2_ms=timing["p2_ms"], p2star_ms=timing["p2star_ms"], log=log)
-            rec.event(f"流程开始：共 {len(steps)} 步，on_fail={cfg['on_fail']}")
+            uds = UdsClient(transport, p2_ms=timing["p2_ms"],
+                            p2star_ms=timing["p2star_ms"], log=log)
+            rec.event(f"流程开始：共 {len(steps)} 步，on_fail={on_fail}")
             for i, step in enumerate(steps, 1):
                 counters["total"] += 1
                 if step.security_access is not None:
-                    lvl = LEVELS[step.security_access]
+                    lvl = levels[step.security_access]
                     log(f"[{i}] {step.name} 安全解锁（{step.security_access} 级）")
                     try:
-                        seed, key, result = perform_unlock(uds, step.security_access,
-                                                           timeout_ms=step.timeout_ms, log=log)
+                        seed, key, result = perform_unlock(
+                            uds, lvl, timeout_ms=step.timeout_ms, log=log)
                     except UnlockError as e:
                         result, verdict = UdsResult(), "FAIL"
                         log(f"[{i}] {step.name} -> {e} 判定 FAIL")
                     else:
                         ok = (result.response is not None
-                              and result.response.startswith(bytes([0x67, lvl.key_sub])))
+                              and result.response.startswith(
+                                  bytes([0x67, lvl.key_sub])))
                         verdict = ("PASS" if ok
                                    else "TIMEOUT" if result.timeout else "FAIL")
                         log(f"[{i}] {step.name} -> "
@@ -249,13 +292,15 @@ def run_flow(cfg: dict, driver, run_dir):
                     frames = encode(step.request, cfg["can"]["fd"])
                     for f in frames:
                         frame = CanFrame(diag["functional_id"], f,
-                                         is_fd=cfg["can"]["fd"], bitrate_switch=cfg["can"]["fd"])
+                                         is_fd=cfg["can"]["fd"],
+                                         bitrate_switch=cfg["can"]["fd"])
                         driver.send(frame)
                         rec.frame(frame, False)
-                    rec.event(f"[{i}] {step.name} 功能寻址发送 {step.request.hex().upper()}（不等待响应）")
+                    rec.event(f"[{i}] {step.name} 功能寻址发送 "
+                              f"{step.request.hex().upper()}（不等待响应）")
                     # 发完即记一行 SENT：CSV 行数与已执行步骤对齐、与 abort 跳过可区分
-                    rec.step(i, step.name, step.addressing, step.request.hex().upper(),
-                             UdsResult(), "SENT")
+                    rec.step(i, step.name, step.addressing,
+                             step.request.hex().upper(), UdsResult(), "SENT")
                     counters["pass"] += 1
                     time.sleep(delay_s(step))
                     continue
@@ -265,7 +310,8 @@ def run_flow(cfg: dict, driver, run_dir):
                         f"（期望 {step.expect.hex().upper() if step.expect else '无'}）")
                     result = uds.request(step.request, timeout_ms=step.timeout_ms)
                     verdict = judge(step, result)
-                    rec.step(i, step.name, step.addressing, step.request.hex().upper(), result, verdict)
+                    rec.step(i, step.name, step.addressing,
+                             step.request.hex().upper(), result, verdict)
                     log(f"[{i}] {step.name} -> "
                         f"{result.response.hex().upper() if result.response else '无响应'}"
                         f" 判定 {verdict}"
@@ -276,7 +322,7 @@ def run_flow(cfg: dict, driver, run_dir):
                     counters["fail"] += 1
                 else:
                     counters["timeout"] += 1
-                if verdict != "PASS" and cfg["on_fail"] == "abort":
+                if verdict != "PASS" and on_fail == "abort":
                     log("步骤失败且 on_fail=abort，中止流程")
                     break
                 time.sleep(delay_s(step))
