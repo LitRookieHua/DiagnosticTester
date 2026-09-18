@@ -10,11 +10,6 @@
 # 物理寻址：请求 0x766，响应 0x776（CAN FD，11 位标准帧）
 #   探针实测：FD 帧发送到 0x766，ECU 在 0x776 回复（标准 11 位 FD 帧）。
 #   功能寻址 0x7DF 备用。
-timing:
-  p2_ms: 50
-  p2star_ms: 8000
-  step_delay_ms: 100
-
 steps:
   - name: 进扩展会话
     request: "1003"

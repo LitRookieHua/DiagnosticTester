@@ -1,7 +1,5 @@
 timing:
-  p2_ms: 50
   p2star_ms: 8000
-  step_delay_ms: 100
 
 steps:
   - name: 进扩展会话
