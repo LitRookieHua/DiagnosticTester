@@ -7,6 +7,7 @@
 算法对照源码：
 - aes_cmac_df_token / aes_cmac_seed — cpj_baic n60 变体
 - cmc_mask_app / cmc_mask_boot — cpj_cmc（RX）
+- t1lfl1_crc16 — cpj_chery veh_t1lfl1（T1LFL1 app，CRC 式位运算）
 """
 from __future__ import annotations
 
@@ -65,8 +66,27 @@ def _key_aes_cmac_df_token(seed: bytes, params: dict, df: bytes | None) -> bytes
 
 
 def _key_aes_cmac_seed(seed: bytes, params: dict, df: bytes | None) -> bytes:
-    """develop：Key=CMAC(key,Seed)。"""
+    """develop/V2XEU app：Key=CMAC(key,Seed)。"""
     return _cmac(params["key"], seed)
+
+
+def _key_t1lfl1_crc16(seed: bytes, params: dict, df: bytes | None) -> bytes:
+    """T1LFL1 app：CRC 式位运算（uint16 回绕），密钥 2 字节大端。
+
+    对照 ov_dia_0x27_security_access.cpp Dcm_CompareKey：初值 0xFFFE，
+    每字节异或到高 8 位后按位移 8 次，最高位为 1 时按 0x0080 位选
+    多项式 0x8408 / 0x8025 异或。
+    """
+    k = 0xFFFE
+    for b in seed:
+        k ^= b << 8
+        for _ in range(8):
+            if k & 0x8000:
+                poly = 0x8408 if k & 0x0080 else 0x8025
+                k = ((k << 1) ^ poly) & 0xFFFF
+            else:
+                k = (k << 1) & 0xFFFF
+    return k.to_bytes(2, "big")
 
 
 def seed_to_key_app(seed_u16: int, mask_table: list[int]) -> int:
@@ -111,17 +131,19 @@ def _key_cmc_mask_boot(seed: bytes, params: dict, df: bytes | None) -> bytes:
 
 
 # 算法注册表：计算函数 + 固有 (seed_len, key_len) + params 键 → hex 字节数
-# （mask_table 特殊：16 项 u32 列表）
+# （mask_table 特殊：16 项 u32 列表；optional_params 可省略）
 ALGORITHMS: dict[str, dict] = {
     "aes_cmac_df_token": {"key": _key_aes_cmac_df_token,
                           "seed_len": 16, "key_len": 32,
                           "params": {"key_factor": 16}},
     "aes_cmac_seed": {"key": _key_aes_cmac_seed, "seed_len": 16, "key_len": 16,
-                      "params": {"key": 16, "magic": 16}},
+                      "params": {"key": 16}, "optional_params": {"magic": 16}},
     "cmc_mask_app": {"key": _key_cmc_mask_app, "seed_len": 2, "key_len": 4,
                      "params": {"mask_table": 16}},
     "cmc_mask_boot": {"key": _key_cmc_mask_boot, "seed_len": 2, "key_len": 4,
                       "params": {"mask_table": 16}},
+    "t1lfl1_crc16": {"key": _key_t1lfl1_crc16, "seed_len": 2, "key_len": 2,
+                     "params": {}},
 }
 
 
@@ -178,7 +200,8 @@ def _build_level(name: str, item: dict) -> SecLevel:
     raw_params = item.get("params", {})
     if not isinstance(raw_params, dict):
         raise ValueError(f"{name}.params: 必须是映射")
-    unknown = sorted(set(raw_params) - set(spec["params"]))
+    optional = spec.get("optional_params", {})
+    unknown = sorted(set(raw_params) - set(spec["params"]) - set(optional))
     if unknown:
         raise ValueError(f"{name}.params.{unknown[0]}: 未知参数")
     params = {}
@@ -192,6 +215,9 @@ def _build_level(name: str, item: dict) -> SecLevel:
             params[k] = [_u32(v, f"{name}.params.mask_table[{i}]")
                          for i, v in enumerate(tbl)]
         else:
+            params[k] = _hex(raw_params[k], n, f"{name}.params.{k}")
+    for k, n in optional.items():
+        if k in raw_params:
             params[k] = _hex(raw_params[k], n, f"{name}.params.{k}")
     return SecLevel(name=name, seed_sub=seed_sub, key_sub=key_sub,
                     seed_len=spec["seed_len"], key_len=spec["key_len"],

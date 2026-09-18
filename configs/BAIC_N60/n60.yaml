@@ -8,6 +8,7 @@ can:
 diagnostic:
   request_id: 0x70C
   response_id: 0x78C
+  functional_id: 0x7DF
 
 timing:
   p2_ms: 50

@@ -1,0 +1,24 @@
+can:
+  device: USBCANFD-200U
+  channel: 0
+  fd: true
+  baudrate: 500000
+  data_baudrate: 2000000
+
+diagnostic:
+  request_id: 0x766
+  response_id: 0x776
+  functional_id: 0x7DF
+
+timing:
+  p2_ms: 50
+  p2star_ms: 8000
+  step_delay_ms: 100
+
+# 对照 veh_t1lfl1 ov_dia_0x27_security_access.cpp：app 为 CRC 式位运算
+# （0x03/0x04，等级 2）；boot 为空桩，不可解锁，故不配置
+security:
+  app:
+    seed_sub: 0x03
+    key_sub: 0x04
+    algorithm: t1lfl1_crc16

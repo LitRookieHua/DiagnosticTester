@@ -14,15 +14,16 @@
 
 ## 目录结构
 
-    configs/                    # 项目配置（每个项目一份）
-      N60/n60.yaml             # can / diagnostic / timing / security
-      RX/rx.yaml
-      T1LFL1/t1lfl1.yaml
+    configs/                    # 项目配置（每个项目一份，<客户>_<项目名>）
+      BAIC_N60/n60.yaml        # can / diagnostic / timing / security
+      CMC_RX/rx.yaml
+      Chery_T1LFL1/t1lfl1.yaml
+      Chery_V2XEU/v2xeu.yaml
       example.yaml / example_mock.yaml
-    testcase/                  # 测试用例（每个流程一份）
-      N60/verify_1363_final.yaml   # steps / on_fail / 可选 timing 覆盖
-      RX/verify_f4cmc59.yaml
-      T1LFL1/verify_2cf5_clear_2a1e.yaml
+    testcase/                  # 测试用例（每个流程一份，目录与 configs 对应）
+      BAIC_N60/verify_1363_final.yaml   # steps / on_fail / 可选 timing 覆盖
+      CMC_RX/verify_f4cmc59.yaml
+      Chery_T1LFL1/verify_2cf5_clear_2a1e.yaml
       example.yaml / example_mock.yaml
       ...
     logs/                      # 每次运行的 run.log / result.csv / trace.blf
@@ -33,10 +34,10 @@
 
 | 命令 | 用途 | 示例 |
 | --- | --- | --- |
-| `run` | 跑测试用例 | `python diag.py run testcase/N60/x.yaml --config configs/N60/n60.yaml` |
-| `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/N60/n60.yaml` |
-| `probe` | 单发一条请求 | `python diag.py probe --config configs/N60/n60.yaml 22F195` |
-| `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/N60/n60.yaml app` |
+| `run` | 跑测试用例 | `python diag.py run testcase/BAIC_N60/x.yaml --config configs/BAIC_N60/n60.yaml` |
+| `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/BAIC_N60/n60.yaml` |
+| `probe` | 单发一条请求 | `python diag.py probe --config configs/BAIC_N60/n60.yaml 22F195` |
+| `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/BAIC_N60/n60.yaml app` |
 
 ## 配置文件（configs/）
 
@@ -90,9 +91,10 @@ security:
 | 算法名 | 用途 | params | 密钥计算 |
 | --- | --- | --- | --- |
 | `aes_cmac_df_token` | N60 app/boot | `key_factor`（16B hex） | SK=CMAC(KF,DF)，Key=DF‖CMAC(SK,Seed) |
-| `aes_cmac_seed` | develop 等 | `key`（16B hex）、`magic`（16B hex） | Key=CMAC(key,Seed) |
+| `aes_cmac_seed` | develop、V2XEU app | `key`（16B hex）、`magic`（16B hex，可选） | Key=CMAC(key,Seed) |
 | `cmc_mask_app` | RX app | `mask_table`（16×u32） | cpj_cmc seedToKeyApp |
 | `cmc_mask_boot` | RX boot | `mask_table` | cpj_cmc seedToKeyBoot |
+| `t1lfl1_crc16` | T1LFL1 app | 无 | CRC 式位运算（veh_t1lfl1 源码），2B→2B |
 
 **develop（61/62，公司内部通用）内置**：所有项目自动可用，无需配置；
 配置里写 `security.develop` 可覆盖。新客户算法 = 在 security.py 注册表
@@ -100,7 +102,7 @@ security:
 
 ## run — 跑测试用例
 
-    python diag.py run testcase/N60/x.yaml --config configs/N60/n60.yaml
+    python diag.py run testcase/BAIC_N60/x.yaml --config configs/BAIC_N60/n60.yaml
 
 输出汇总与退出码：
 
@@ -111,7 +113,7 @@ security:
 
 ## chat — 交互模式
 
-    python diag.py chat --config configs/N60/n60.yaml
+    python diag.py chat --config configs/BAIC_N60/n60.yaml
 
 逐条输入十六进制请求，即时显示响应与耗时：
 
@@ -129,12 +131,12 @@ security:
 
 ## probe — 单发一条
 
-    python diag.py probe --config configs/N60/n60.yaml 22F195
+    python diag.py probe --config configs/BAIC_N60/n60.yaml 22F195
     响应：62F19520533031302E303039
 
 ## unlock — 安全解锁
 
-    python diag.py unlock --config configs/N60/n60.yaml app
+    python diag.py unlock --config configs/BAIC_N60/n60.yaml app
 
 等级来自配置 security 节 + 内置 develop（61/62）。
 
@@ -150,7 +152,7 @@ security:
 
 每次运行生成 `logs/<项目>_<前缀>_<时间戳>/`（前缀：run 为用例名，
 chat/probe/unlock 为命令名；项目名取配置的子目录，如
-`configs/N60/n60.yaml` → N60，configs 根下的配置取文件名）：
+`configs/BAIC_N60/n60.yaml` → BAIC_N60，configs 根下的配置取文件名）：
 
 - `run.log`  人读文本流水（步骤、判定、NRC、0x78 事件、解锁种子/密钥）
 - `result.csv`  UDS 级结果表（seq/步骤/请求/响应/NRC/判定/耗时/时间戳）

@@ -17,7 +17,7 @@ V_BOOT = dict(seed="0017E474DD2D1474CCF3F372F193AF51",
 V_DEV = dict(seed="833D96C2A22693B43D75C94B92CB0F4F",
              key="2BF8DE6BF27911AE6346F94FB37500F7")
 
-# N60 项目 security 节（与 configs/N60/n60.yaml 一致）
+# N60 项目 security 节（与 configs/BAIC_N60/n60.yaml 一致）
 N60_SECURITY = {
     "app": {"seed_sub": 0x01, "key_sub": 0x02,
             "algorithm": "aes_cmac_df_token",
@@ -43,6 +43,21 @@ RX_SECURITY = {
     "app": {"seed_sub": 0x01, "key_sub": 0x02,
             "algorithm": "cmc_mask_app",
             "params": {"mask_table": [f"{v:08x}" for v in MASK_TABLE]}},
+}
+
+# T1LFL1 CRC 式位运算向量：按 veh_t1lfl1 ov_dia_0x27_security_access.cpp
+# 逐行转写计算（seed 0000 已按 C 语义手工逐步核对）
+V_T1LFL1 = [("0000", "9AB1"), ("0001", "1A94"), ("1234", "017A"),
+            ("ABCD", "FAA5"), ("FFFF", "8025")]
+
+T1LFL1_SECURITY = {
+    "app": {"seed_sub": 0x03, "key_sub": 0x04, "algorithm": "t1lfl1_crc16"},
+}
+
+# V2XEU app：AES-CMAC 直算、种子请求不带 magic（与 veh_v2xeu 源码一致）
+V2XEU_SECURITY = {
+    "app": {"seed_sub": 0x01, "key_sub": 0x02, "algorithm": "aes_cmac_seed",
+            "params": {"key": "B6042A5FFBFAED83539F4C42D44CFFDF"}},
 }
 
 
@@ -159,6 +174,28 @@ def test_cmc_mask_key_bytes(n60):
     assert rx.compute_key(bytes.fromhex("0000")) == bytes.fromhex("F7CBC641")
 
 
+def test_t1lfl1_crc16_vectors():
+    app = levels_from_config(T1LFL1_SECURITY)["app"]
+    assert app.seed_len == 2 and app.key_len == 2
+    assert app.seed_request() == bytes.fromhex("2703")
+    for seed, key in V_T1LFL1:
+        assert app.compute_key(bytes.fromhex(seed)) == bytes.fromhex(key), \
+            f"seed={seed}"
+
+
+def test_aes_cmac_seed_magic_optional():
+    # V2XEU app：无 magic，种子请求不附加、密钥仍为 CMAC(key, seed)
+    app = levels_from_config(V2XEU_SECURITY)["app"]
+    assert app.seed_request() == bytes.fromhex("2701")
+    assert len(app.compute_key(bytes(16))) == 16
+    # magic 给了仍校验长度
+    with pytest.raises(ValueError):
+        levels_from_config({"app": {"seed_sub": 0x01, "key_sub": 0x02,
+                                    "algorithm": "aes_cmac_seed",
+                                    "params": {"key": "11" * 16,
+                                               "magic": "22" * 15}}})
+
+
 def test_seed_request_forms(n60):
     assert n60["app"].seed_request() == bytes.fromhex("2701")
     assert n60["boot"].seed_request() == bytes.fromhex("2711")
@@ -230,6 +267,15 @@ def test_perform_unlock_cmc_mask_success():
     assert seed_out == bytes.fromhex("1234")
     assert key == bytes.fromhex("54295DB3")
     assert result.response == bytes.fromhex("6702")
+
+
+def test_perform_unlock_t1lfl1_success():
+    app = levels_from_config(T1LFL1_SECURITY)["app"]
+    uds = UdsClient(SecFake(app, bytes.fromhex("1234")))
+    seed_out, key, result = perform_unlock(uds, app)
+    assert seed_out == bytes.fromhex("1234")
+    assert key == bytes.fromhex("017A")
+    assert result.response == bytes.fromhex("6704")
 
 
 def test_perform_unlock_wrong_key_fails(n60):
