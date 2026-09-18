@@ -92,20 +92,15 @@ class ZlgCanDriver(CanDriver):
         if not self._dev:
             raise RuntimeError(f"打开 {device}#{device_index} 失败：检查 USB 连接与设备索引")
         try:
-            if fd:
-                self._set_value(f"{channel}/canfd_abit_baud_rate", str(baudrate))
-                self._set_value(f"{channel}/canfd_dbit_baud_rate", str(data_baudrate))
-            else:
-                self._set_value(f"{channel}/baud_rate", str(baudrate))
+            # USBCANFD-200U 仅在 CANFD 通道模式下能 StartCAN；经典 CAN 帧与 FD 帧
+            # 都走同一 CANFD 通道（仲裁域波特率 baudrate，数据域波特率 data_baudrate）
+            self._set_value(f"{channel}/canfd_abit_baud_rate", str(baudrate))
+            self._set_value(f"{channel}/canfd_dbit_baud_rate", str(data_baudrate))
             self._set_value(f"{channel}/initenal_resistance", "1")
             self._set_value(f"{channel}/set_device_tx_echo", "0")
             cfg = zmod.ZCAN_CHANNEL_INIT_CONFIG()
-            if fd:
-                cfg.can_type = zmod.ZCAN_TYPE_CANFD
-                cfg.config.canfd.mode = 0  # 0-正常模式 1-只听模式
-            else:
-                cfg.can_type = zmod.ZCAN_TYPE_CAN
-                cfg.config.can.mode = 0
+            cfg.can_type = zmod.ZCAN_TYPE_CANFD
+            cfg.config.canfd.mode = 0  # 0-正常模式 1-只听模式
             self._chn = self._z.InitCAN(self._dev, channel, cfg)
             if not self._chn:
                 raise RuntimeError(f"通道 {channel} 初始化失败")
@@ -121,7 +116,9 @@ class ZlgCanDriver(CanDriver):
         self._rx_thread.start()
 
     def _set_value(self, key: str, value: str):
-        if self._z.ZCAN_SetValue(self._dev, key, value.encode("utf-8")) != 1:
+        # ZCAN_SetValue 第三个参数是 c_void_p，必须显式补 \0 结尾，
+        # 否则 C 层读到未初始化字节，波特率/电阻等配置被污染，StartCAN 失败
+        if self._z.ZCAN_SetValue(self._dev, key, value.encode("utf-8") + b"\x00") != 1:
             raise RuntimeError(f"设置 {key}={value} 失败")
 
     def _rx_loop(self):
