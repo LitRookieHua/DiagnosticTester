@@ -1,6 +1,15 @@
-can: {device: mock, channel: 0, fd: false, baudrate: 500000}
-diagnostic: {request_id: 0x70C, response_id: 0x78C, functional_id: 0x7DF}
-timing: {p2_ms: 50, p2star_ms: 5000, step_delay_ms: 0}
-steps:
-  - {name: 进扩展会话, request: "1003", expect: "5003"}
-on_fail: continue
+can:
+  device: mock
+  channel: 0
+  fd: false
+  baudrate: 500000
+
+diagnostic:
+  request_id: 0x70C
+  response_id: 0x78C
+  functional_id: 0x7DF
+
+timing:
+  p2_ms: 50
+  p2star_ms: 5000
+  step_delay_ms: 0

@@ -14,24 +14,3 @@ timing:
   p2_ms: 50
   p2star_ms: 5000
   step_delay_ms: 100
-
-steps:
-  - name: 进扩展会话
-    request: "1003"
-    expect: "5003"
-  # 安全解锁步骤示例（可选）：执行完整 27 取种子→发密钥序列
-  # - name: 解锁 app
-  #   security_access: app
-  - name: 读 DID F195（部件号）
-    request: "22F195"
-    expect: "62F195"
-  - name: 读 DID F190（VIN）
-    request: "22F190"
-    expect: "62F190"
-    timeout_ms: 2000
-  - name: 回默认会话
-    request: "1001"
-    expect: "5001"
-    delay_after_ms: 500
-
-on_fail: abort

@@ -1,17 +1,6 @@
-can:
-  device: USBCANFD-200U
-  channel: 0
-  fd: true
-  baudrate: 500000
-  data_baudrate: 2000000
-
-diagnostic:
-  request_id: 0x70C
-  response_id: 0x78C
-
 timing:
   p2_ms: 50
-  p2star_ms: 5000
+  p2star_ms: 15000
   step_delay_ms: 100
 
 steps:
@@ -20,14 +9,14 @@ steps:
     expect: "5003"
   - name: 解锁 app
     security_access: app
-  - name: 读 DID 9D01（写前）
+  - name: 读 9D01（15s 窗口）
     request: "229D01"
     expect: "629D01"
-  - name: 写 DID 9D01 = 01
+  - name: 写 9D01 = 01（15s 窗口）
     request: "2E9D0101"
     expect: "6E9D01"
-  - name: 读 DID 9D01（写后回读）
+  - name: 读 9D01 回读（15s 窗口）
     request: "229D01"
     expect: "629D01"
 
-on_fail: abort
+on_fail: continue
