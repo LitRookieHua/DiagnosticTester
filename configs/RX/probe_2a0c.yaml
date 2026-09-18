@@ -1,0 +1,57 @@
+can:
+  device: USBCANFD-200U
+  channel: 0
+  fd: true
+  baudrate: 500000
+  data_baudrate: 2000000
+
+diagnostic:
+  request_id: 0x712
+  response_id: 0x713
+  functional_id: 0x7DF
+
+timing:
+  p2_ms: 50
+  p2star_ms: 5000
+  step_delay_ms: 100
+
+steps:
+  - name: 进扩展会话
+    request: "1003"
+    expect: "5003"
+  # F4CMC-56 温度DID +5000偏移编码：T = XX*0.01-50，室温约25°C → XX≈7500=0x1D4C
+  - name: 读 D101 ECU环境温度
+    request: "22D101"
+    expect: "62D101"
+  - name: 读 D102 J6B内部温度
+    request: "22D102"
+    expect: "62D102"
+  - name: 读 D199 相机温度
+    request: "22D199"
+    expect: "62D199"
+  - name: 读 2A0C 温度原始簇
+    request: "222A0C"
+    expect: "622A0C"
+  # F4CMC-55 版本DID右对齐：F187长12默认MN215042(8字符) → 首字节应为0x20
+  - name: 读 F187 部件号（右对齐验证，首字节0x20）
+    request: "22F187"
+    expect: "62F18720"
+  - name: 读 F18A 供应商代码
+    request: "22F18A"
+    expect: "62F18A"
+  - name: 读 F193 硬件版本
+    request: "22F193"
+    expect: "62F193"
+  - name: 读 F195 软件版本
+    request: "22F195"
+    expect: "62F195"
+  # F4CMC-52 D124 EOL标定结果（弧度转角度修复需标定后验证，此处先读当前值）
+  - name: 读 D124 EOL标定结果
+    request: "22D124"
+    expect: "62D124"
+  - name: 回默认会话
+    request: "1001"
+    expect: "5001"
+    delay_after_ms: 500
+
+on_fail: continue

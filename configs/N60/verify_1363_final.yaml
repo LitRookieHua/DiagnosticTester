@@ -1,0 +1,63 @@
+can:
+  device: USBCANFD-200U
+  channel: 0
+  fd: true
+  baudrate: 500000
+  data_baudrate: 2000000
+
+diagnostic:
+  request_id: 0x70C
+  response_id: 0x78C
+
+timing:
+  p2_ms: 50
+  p2star_ms: 8000
+  step_delay_ms: 100
+
+steps:
+  # ===== IDC310BAIC-1363 最终验证（A核无应答台架） =====
+  # 写 9D01：先写 NVM（立即生效）→ 再 IPC 0x2E0A 透传
+  #   A核无应答 → 5s pending 后 7F2E22，但 NVM 已写入
+  #   A核应答 6E9D0100 → 回 6E9D01
+  # 读 9D01：直接读本地 NVM，立即回 62
+  - name: 默认会话读 9D01（本地 NVM，立即响应）
+    request: "229D01"
+    expect: "629D01"
+  - name: 默认会话写 9D01（应被拒，非扩展会话）
+    request: "2E9D0101"
+    expect: "7F2E"
+  - name: 进扩展会话
+    request: "1003"
+    expect: "5003"
+  - name: 扩展会话锁定态写 9D01（应被拒 33）
+    request: "2E9D0101"
+    expect: "7F2E33"
+  - name: 解锁 app（2701）
+    security_access: app
+  - name: 解锁后读 9D01（基线）
+    request: "229D01"
+    expect: "629D01"
+  - name: 写 9D01 = 00（NVM 落库；A核拒绝禁用 → 22，NVM 已写入）
+    request: "2E9D0100"
+    expect: "7F2E22"
+  - name: 读 9D01 回读（NVM = 00）
+    request: "229D01"
+    expect: "629D0100"
+  - name: 写 9D01 = 01（NVM 落库 + A核正响应 → 6E）
+    request: "2E9D0101"
+    expect: "6E9D01"
+  - name: 读 9D01 回读（NVM = 01，证明写入不依赖 IPC 结果）
+    request: "229D01"
+    expect: "629D0101"
+  - name: 写 9D01 = 02 非法值（范围检查拒绝 31，不触 NVM/IPC）
+    request: "2E9D0102"
+    expect: "7F2E31"
+  - name: 读 9D01（仍 = 01，非法值未入 NVM）
+    request: "229D01"
+    expect: "629D0101"
+  - name: 回默认会话
+    request: "1001"
+    expect: "5001"
+    delay_after_ms: 500
+
+on_fail: continue
