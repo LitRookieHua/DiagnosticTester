@@ -121,3 +121,31 @@ def test_perform_unlock_seed_timeout_raises():
     from security import UnlockError
     with pytest.raises(UnlockError):
         perform_unlock(uds, "app")
+
+
+# ===== RX（cpj_cmc）mask_table 算法向量 =====
+# 按 cpj_cmc dia_cfg/src/0x27/ov_dia_0x27_security_access.cpp
+# seedToKeyApp/seedToKeyBoot 逐行转写计算所得
+MASK_TABLE = [0xf7cbc641, 0xc81dc123, 0xd88eb629, 0x942e16ad,
+              0x616277ff, 0x8cd16b85, 0x79b09727, 0x7198b307,
+              0x7dd79183, 0x2f7f1b17, 0x0eb2ff43, 0x6c6b262d,
+              0x4efe3885, 0xd028eabd, 0x0ae30f11, 0x3eea5c0d]
+
+V_MASK_APP = [(0x0000, 0xF7CBC641), (0x0001, 0xA2B9E303),
+              (0x1234, 0x54295DB3), (0xABCD, 0xEE33C200),
+              (0xFFFF, 0x792E6737)]
+V_MASK_BOOT = [(0x0000, 0xF7CBC641), (0x0001, 0xA93C70A5),
+               (0x1234, 0x8D5BBB39), (0xABCD, 0x7DE37C8A),
+               (0xFFFF, 0x2B985440)]
+
+
+def test_seed_to_key_app_vectors():
+    from security import seed_to_key_app
+    for seed, key in V_MASK_APP:
+        assert seed_to_key_app(seed, MASK_TABLE) == key, f"seed={seed:04X}"
+
+
+def test_seed_to_key_boot_vectors():
+    from security import seed_to_key_boot
+    for seed, key in V_MASK_BOOT:
+        assert seed_to_key_boot(seed, MASK_TABLE) == key, f"seed={seed:04X}"

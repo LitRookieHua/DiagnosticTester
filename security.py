@@ -109,3 +109,37 @@ def perform_unlock(uds: UdsClient, level: str, timeout_ms: int | None = None,
     log(f"安全解锁[{level}] 密钥 {key.hex().upper()}")
     result = uds.request(bytes([0x27, lvl.key_sub]) + key, timeout_ms=timeout_ms)
     return seed, key, result
+
+
+# ===== RX（cpj_cmc）mask_table 算法：对照 C 源码逐行移植 =====
+# 注意 u32 截断语义：中间乘法结果按 uint32 回绕；密钥 4 字节大端发送
+# （C 侧按 Key[0]<<24|Key[1]<<16|Key[2]<<8|Key[3] 组装比较）。
+
+
+def seed_to_key_app(seed_u16: int, mask_table: list[int]) -> int:
+    """cpj_cmc seedToKeyApp：mask_index = seed%16，迭代移位乘法后异或。"""
+    idx = seed_u16 % 16
+    chosen = mask_table[idx]
+    t = seed_u16 & 0xFFFF
+    if t != 0:
+        for _ in range(idx):
+            t = ((chosen >> 2) + (t >> 2)) & 0xFFFFFFFF
+            t = ((t & 0xFFFF) * (((t >> 16) ^ chosen) & 0xFFFF)) & 0xFFFFFFFF
+    else:
+        t = (t << 1) & 0xFFFFFFFF
+    return (t ^ chosen) & 0xFFFFFFFF
+
+
+def seed_to_key_boot(seed_u16: int, mask_table: list[int]) -> int:
+    """cpj_cmc seedToKeyBoot：middle/end 组合移位后异或。"""
+    idx = seed_u16 % 16
+    chosen = mask_table[idx]
+    t = seed_u16 & 0xFFFF
+    if t != 0:
+        mid = (t + (chosen >> 1)) & 0xFFFFFFFF
+        mid = (mid ^ chosen) & 0xFFFF
+        end = ((mid * (chosen & 0xFFFF)) >> 3) & 0xFFFF
+        t = ((mid << 8) | ((end & 0xFF00) << 16) | (end & 0xFF)) & 0xFFFFFFFF
+    else:
+        t = (t << 1) & 0xFFFFFFFF
+    return (t ^ chosen) & 0xFFFFFFFF
