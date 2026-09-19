@@ -139,6 +139,14 @@ def test_load_maps_duplicate_normalized_key(tmp_path):
         dem.load_maps(tmp_path)
 
 
+def test_load_maps_identical_duplicate_key(tmp_path):
+    # PyYAML 默认会静默折叠字面重复键（后者覆盖前者），必须显式报错
+    (tmp_path / "dtc_map.yaml").write_text(
+        "0xEA0788: First\n0xEA0788: Second\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="重复键"):
+        dem.load_maps(tmp_path)
+
+
 def test_load_maps_gbk_file_rejected(tmp_path):
     p = tmp_path / "dtc_map.yaml"
     p.write_bytes("0xEA0788: 名字\n".encode("gbk"))  # 非 UTF-8

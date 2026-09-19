@@ -30,11 +30,33 @@ DTC_STATUS_BITS = [
 ]
 
 
+class _StrictLoader(yaml.SafeLoader):
+    """拒绝字面重复键的 SafeLoader（PyYAML 默认后者静默覆盖前者）。"""
+
+
+def _no_dup_keys(loader, node, deep=False):
+    mapping = {}
+    for k_node, v_node in node.value:
+        k = loader.construct_object(k_node, deep=deep)
+        if k in mapping:
+            raise ConfigError(
+                f"重复键 {k!r}（同一文件内出现多次，后者会静默覆盖前者）")
+        mapping[k] = loader.construct_object(v_node, deep=deep)
+    return mapping
+
+
+_StrictLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_keys)
+
+
 def _load_yaml_dict(path: Path, what: str) -> dict:
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        raw = yaml.load(text, _StrictLoader)
     except (yaml.YAMLError, UnicodeDecodeError) as e:
         raise ConfigError(f"{path.name}: YAML 语法错误：{e}")
+    except OSError as e:
+        raise ConfigError(f"{path.name}: 无法读取：{e}")
     if raw is None:
         return {}
     if not isinstance(raw, dict):

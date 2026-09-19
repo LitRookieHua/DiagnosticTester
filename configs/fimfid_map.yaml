@@ -1,2 +1,3 @@
 # fimfid map 示例：键规则同 event_map，对应 22 2A1E 位图
+# 注意：键不要写前导零（如 010），YAML 1.1 会把它按八进制解析
 1: FiM_Function_Xxx

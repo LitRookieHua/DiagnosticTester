@@ -1,4 +1,5 @@
 # event map 示例：键从 1 开始，对应 22 2A0D/2A0E/2A0F 位图中第 N 位
+# 注意：键不要写前导零（如 010），YAML 1.1 会把它按八进制解析
 1: DemEvent_HCTDTC_1
 2: DemEvent_HCTDTC_2
 3: DemEvent_HCTDTC_3
