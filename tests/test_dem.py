@@ -2,6 +2,39 @@ import pytest
 
 import dem
 from flow import ConfigError
+from uds import UdsResult
+
+
+class FakeUds:
+    """按请求字节脚本化响应的假 UdsClient；未脚本化的请求返回超时。"""
+
+    def __init__(self, responses: dict):
+        self.responses = dict(responses)
+
+    def request(self, payload, timeout_ms=None):
+        return self.responses.get(payload, UdsResult(timeout=True))
+
+
+def _maps():
+    return {"dids": dict(dem.DEFAULT_DIDS),
+            "dtc_map": {0xEA0788: "DemDTC_U2A0788_CAN_ACAN_Busoff"},
+            "event_map": {1: "DemEvent_HCTDTC_1"},
+            "fimfid_map": {2: "FiM_Function_Xxx"}}
+
+
+def _ok_uds() -> FakeUds:
+    return FakeUds({
+        bytes.fromhex("19020F"): UdsResult(
+            response=bytes.fromhex("5902FFEA07882F")),
+        bytes.fromhex("222A0D"): UdsResult(
+            response=bytes.fromhex("622A0D21")),
+        bytes.fromhex("222A0E"): UdsResult(
+            response=bytes.fromhex("622A0E00")),
+        bytes.fromhex("222A0F"): UdsResult(
+            response=bytes.fromhex("622A0F0401")),
+        bytes.fromhex("222A1E"): UdsResult(
+            response=bytes.fromhex("622A1E02")),
+    })
 
 
 # ---------- load_maps ----------
@@ -171,3 +204,80 @@ def test_parse_bitmap_all_bits():
 def test_parse_bitmap_zero_and_empty():
     assert dem.parse_bitmap(bytes([0x00])) == []
     assert dem.parse_bitmap(b"") == []
+
+
+# ---------- run_dem ----------
+
+def test_run_dem_full_report():
+    lines = []
+    assert dem.run_dem(_ok_uds(), _maps(), lines.append) == 0
+    text = "\n".join(lines)
+    assert "===== DEM 故障报告 =====" in text
+    assert "[DTC 故障]（19 02 0F）" in text
+    assert ("EA0788  DemDTC_U2A0788_CAN_ACAN_Busoff  0x2F"
+            "  testFailed|testFailedThisOperationCycle|pendingDTC"
+            "|confirmedDTC|testFailedSinceLastClear") in text
+    assert "[当前 event]（22 2A0D）" in text
+    assert "1: DemEvent_HCTDTC_1" in text
+    assert "6:（未在 event_map 中）" in text
+    assert "[本周期 event]（22 2A0E）" in text
+    assert "（无置位 event）" in text
+    assert "[历史 event]（22 2A0F）" in text
+    assert "3:（未在 event_map 中）" in text
+    assert "9:（未在 event_map 中）" in text
+    assert "[当前 fimfid]（22 2A1E）" in text
+    assert "2: FiM_Function_Xxx" in text
+
+
+def test_run_dem_no_dtc_records():
+    fake = _ok_uds()
+    fake.responses[bytes.fromhex("19020F")] = UdsResult(
+        response=bytes.fromhex("5902FF"))
+    lines = []
+    assert dem.run_dem(fake, _maps(), lines.append) == 0
+    assert "无故障记录" in "\n".join(lines)
+
+
+def test_run_dem_timeout_and_nrc_do_not_stop_report():
+    fake = _ok_uds()
+    fake.responses[bytes.fromhex("19020F")] = UdsResult(timeout=True)
+    fake.responses[bytes.fromhex("222A0D")] = UdsResult(
+        response=bytes.fromhex("7F2231"), nrc=0x31)
+    lines = []
+    assert dem.run_dem(fake, _maps(), lines.append) == 1
+    text = "\n".join(lines)
+    assert text.count("(超时无响应)") == 1  # 只有 19 超时；2A0D 走 NRC 分支
+    assert "(NRC 0x31)" in text
+    assert "2: FiM_Function_Xxx" in text  # 后续节照常输出
+
+
+def test_run_dem_bad_1902_length_shows_raw():
+    fake = _ok_uds()
+    fake.responses[bytes.fromhex("19020F")] = UdsResult(
+        response=bytes.fromhex("5902FFEA0788"))
+    lines = []
+    assert dem.run_dem(fake, _maps(), lines.append) == 1
+    text = "\n".join(lines)
+    assert "解析失败" in text
+    assert "5902FFEA0788" in text
+
+
+def test_run_dem_empty_bitmap():
+    fake = _ok_uds()
+    fake.responses[bytes.fromhex("222A0D")] = UdsResult(
+        response=bytes.fromhex("622A0D"))
+    lines = []
+    assert dem.run_dem(fake, _maps(), lines.append) == 1
+    assert "(空位图)" in "\n".join(lines)
+
+
+def test_run_dem_without_maps_shows_raw():
+    fake = _ok_uds()
+    maps = {"dids": dict(dem.DEFAULT_DIDS), "dtc_map": {},
+            "event_map": {}, "fimfid_map": {}}
+    lines = []
+    assert dem.run_dem(fake, maps, lines.append) == 0
+    text = "\n".join(lines)
+    assert "EA0788  （未在 dtc_map 中）" in text
+    assert "1:（未在 event_map 中）" in text
+    assert "2:（未在 fimfid_map 中）" in text
