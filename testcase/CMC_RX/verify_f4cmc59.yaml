@@ -12,6 +12,10 @@ steps:
   - name: 读 D199 相机温度
     request: "22D199"
     expect: "62D199"
+  # D199 = 2A0C byte8*100 + byte9*100/256（自定义编码），读 2A0C 对照
+  - name: 读 2A0C 温度原始簇（对照 D199）
+    request: "222A0C"
+    expect: "622A0C"
   # F4CMC-55 版本DID右对齐：F187长12默认MN215042(8字符) → 首字节应为0x20
   - name: 读 F187 部件号（右对齐验证，首字节0x20）
     request: "22F187"
