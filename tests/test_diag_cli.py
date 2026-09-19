@@ -248,6 +248,31 @@ def test_dem_all_timeout_exit_1(run_cli):
     assert out.count("(超时无响应)") == 5
 
 
+def test_dem_bad_map_exit_2(run_cli, tmp_path):
+    # map 文件校验失败 → main 的 ConfigError 处理 → 退出码 2，不触硬件
+    (tmp_path / "dtc_map.yaml").write_text("0xEA0788: 123\n", encoding="utf-8")
+    mock = MockCanDriver()
+    code, out = run_cli(["dem"], ecu=mock)
+    assert code == 2
+
+
+def test_dem_report_written_to_run_log(run_cli, tmp_path):
+    # 配置放 configs/ 根 → 项目名取文件名 "cfg"，日志前缀 cfg_dem_
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "dtc_map.yaml").write_text(
+        "0xEA0788: DemDTC_U2A0788_CAN_ACAN_Busoff\n", encoding="utf-8")
+    mock = MockCanDriver()
+    mock.on_send = _dem_ecu(mock)
+    code, _ = run_cli(["dem"], ecu=mock, cfg_name="configs/cfg.yaml")
+    assert code == 0
+    log_dirs = [p for p in tmp_path.iterdir()
+                if p.is_dir() and p.name.startswith("cfg_dem_")]
+    assert log_dirs, "dem 日志目录未创建"
+    log_text = (log_dirs[0] / "run.log").read_text(encoding="utf-8")
+    assert "===== DEM 故障报告 =====" in log_text
+    assert "DemDTC_U2A0788_CAN_ACAN_Busoff" in log_text
+
+
 def test_dem_log_dir_uses_project(run_cli, tmp_path):
     mock = MockCanDriver()  # 无响应无妨，目录已建
     run_cli(["dem"], ecu=mock, cfg_name="CMC_RX/rx.yaml")

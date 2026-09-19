@@ -95,7 +95,7 @@ event/fimfid 编号不在 map → `13:（未在 event_map 中）`。
 ```
 ===== DEM 故障报告 =====
 [DTC 故障]（19 02 0F）
-  EA0788  DemDTC_U2A0788_CAN_ACAN_Busoff   0x2F  testFailed|pendingDTC|confirmedDTC|testFailedSinceLastClear
+  EA0788  DemDTC_U2A0788_CAN_ACAN_Busoff   0x2F  testFailed|testFailedThisOperationCycle|pendingDTC|confirmedDTC|testFailedSinceLastClear
   （无 DTC 时显示：无故障记录）
 
 [当前 event]（22 2A0D）
@@ -130,9 +130,9 @@ event/fimfid 编号不在 map → `13:（未在 event_map 中）`。
   - `parse_1902(response)`：→ (可用掩码, [(dtc, status), …])，长度异常抛 ValueError；
   - `parse_bitmap(payload)`：→ 置位编号列表（从 1 起）；
   - `decode_status(status)`：→ 八位状态名列表；
-  - `run_dem(uds, maps, rec, print)`：五项执行 + 报告生成。
+  - `run_dem(uds, maps, emit)`：五项执行 + 报告生成。
 - `diag.py`：`dem` 子命令（复用 `open_session`，约 30 行），README 命令表加一行。
-- 示例 map：`configs/example_mock/` 下放一套（含 mock 响应所需的 DTC/event 条目）。
+- 示例 map：`configs/` 根放一套（与 example_mock.yaml 同目录，免迁移）。
 
 ## 5. 测试
 
@@ -147,6 +147,6 @@ event/fimfid 编号不在 map → `13:（未在 event_map 中）`。
 ## 6. 验证
 
 - `python -m pytest tests/ -v` 全绿；
-- 免硬件冒烟：example_mock 配置跑 `python diag.py dem --config configs/example_mock/example_mock.yaml`；
+- 免硬件冒烟：example_mock 配置跑 `python diag.py dem --config configs/example_mock.yaml`；
 - 真机验证（用户执行）：目标项目放好 map 文件后跑 dem，对照 DLT/串口日志
   核对 DTC 名称与 status 位。

@@ -1,0 +1,4 @@
+# DTC map 示例：键 = 3 字节 DTC，值 = Dem 中的名称
+# dem 子命令按 --config 同目录发现本文件；删除即回退显示原始 DTC 值
+# 注意：键不要写前导零（如 010），YAML 1.1 会把它按八进制解析
+0xEA0788: DemDTC_U2A0788_CAN_ACAN_Busoff

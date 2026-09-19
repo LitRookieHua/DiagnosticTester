@@ -91,7 +91,7 @@ def build_transport(cfg, driver, rec):
 
 @contextmanager
 def open_session(cfg, project: str, prefix: str):
-    """probe/chat/unlock 共用的会话资源：driver → 记录器 → 传输 → UDS 客户端，退出时逆序收尾。
+    """probe/chat/unlock/dem 共用的会话资源：driver → 记录器 → 传输 → UDS 客户端，退出时逆序收尾。
 
     日志目录前缀 = <项目名>_<命令名>。run_flow 自管 transport（与步骤执行
     耦合），cmd_run 不走此入口。

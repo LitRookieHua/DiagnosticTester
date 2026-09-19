@@ -1,0 +1,9 @@
+# event map 示例：键从 1 开始，对应 22 2A0D/2A0E/2A0F 位图中第 N 位
+1: DemEvent_HCTDTC_1
+2: DemEvent_HCTDTC_2
+3: DemEvent_HCTDTC_3
+4: DemEvent_HCTDTC_4
+5: DemEvent_HCTDTC_5
+6: DemEvent_HCTDTC_6
+7: DemEvent_HCTDTC_7
+8: DemEvent_HCTDTC_8

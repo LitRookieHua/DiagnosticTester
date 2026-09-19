@@ -26,6 +26,8 @@
       Chery_T1LFL1/verify_2cf5_clear_2a1e.yaml
       example.yaml / example_mock.yaml
       ...
+    configs/<项目>/dtc_map.yaml    # 可选：DTC → 名称（dem 子命令用）
+    event_map.yaml / fimfid_map.yaml / dem_dids.yaml   # 同左，均可选
     logs/                      # 每次运行的 run.log / result.csv / trace.blf
 
 同一测试用例换 `--config` 即可跑不同项目。
@@ -38,6 +40,7 @@
 | `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/BAIC_N60/n60.yaml` |
 | `probe` | 单发一条请求 | `python diag.py probe --config configs/BAIC_N60/n60.yaml 22F195` |
 | `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/BAIC_N60/n60.yaml app` |
+| `dem` | 故障检测报告（DTC/event/fimfid） | `python diag.py dem --config configs/CMC_RX/rx.yaml` |
 
 ## 配置文件（configs/）
 
