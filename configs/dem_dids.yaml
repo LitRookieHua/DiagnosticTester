@@ -1,0 +1,5 @@
+# dem_dids 示例：dem 子命令 DID 覆盖（全部可选，不配用默认值）
+event_current: 0x2A0D
+event_cycle: 0x2A0E
+event_history: 0x2A0F
+fimfid_current: 0x2A1E
