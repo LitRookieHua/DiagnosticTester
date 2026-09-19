@@ -1,0 +1,2 @@
+# CMC_RX 项目 DID 覆盖：实测 fimfid DID 为 2A1D（默认 2A1E 返回 NRC 0x31）
+fimfid_current: 0x2A1D
