@@ -11,7 +11,8 @@ diagnostic:
   functional_id: 0x7DF
 
 timing:
-  p2_ms: 50
+  # 实测 19 02 0F 的 pending 到达需 ~63ms，P2=50 会与其竞态误判超时
+  p2_ms: 200
   p2star_ms: 5000
   step_delay_ms: 100
 
