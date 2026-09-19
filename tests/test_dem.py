@@ -111,3 +111,40 @@ def test_load_maps_gbk_file_rejected(tmp_path):
     p.write_bytes("0xEA0788: 名字\n".encode("gbk"))  # 非 UTF-8
     with pytest.raises(ConfigError):
         dem.load_maps(tmp_path)
+
+
+# ---------- parse_1902 / decode_status ----------
+
+def test_parse_1902_single():
+    mask, records = dem.parse_1902(bytes.fromhex("5902FFEA07882F"))
+    assert mask == 0xFF
+    assert records == [(0xEA0788, 0x2F)]
+
+
+def test_parse_1902_multi():
+    mask, records = dem.parse_1902(bytes.fromhex("5902FFEA07882FEA079001"))
+    assert records == [(0xEA0788, 0x2F), (0xEA0790, 0x01)]
+
+
+def test_parse_1902_no_records():
+    mask, records = dem.parse_1902(bytes.fromhex("5902FF"))
+    assert mask == 0xFF
+    assert records == []
+
+
+def test_parse_1902_odd_length_raises():
+    with pytest.raises(ValueError):
+        dem.parse_1902(bytes.fromhex("5902FFEA0788"))
+
+
+def test_parse_1902_bad_sid_raises():
+    with pytest.raises(ValueError):
+        dem.parse_1902(bytes.fromhex("6202FF"))
+
+
+def test_decode_status():
+    assert dem.decode_status(0x2F) == [
+        "testFailed", "testFailedThisOperationCycle",
+        "pendingDTC", "confirmedDTC", "testFailedSinceLastClear"]
+    assert dem.decode_status(0x00) == []
+    assert dem.decode_status(0x09) == ["testFailed", "confirmedDTC"]

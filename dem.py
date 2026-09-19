@@ -112,3 +112,24 @@ def load_maps(config_dir) -> dict:
         "event_map": _load_table(d, "event_map", nibbles=8, min_key=1),
         "fimfid_map": _load_table(d, "fimfid_map", nibbles=8, min_key=1),
     }
+
+
+def decode_status(status: int) -> list[str]:
+    """DTC status 字节八位解码（ISO 14229-1）。"""
+    return [name for bit, name in DTC_STATUS_BITS if status & bit]
+
+
+def parse_1902(response: bytes):
+    """59 02 正响应 → (状态可用掩码, [(dtc, status), ...])。
+
+    格式：59 02 <掩码1B> <DTC×3B><status×1B>…；格式不符抛 ValueError。
+    """
+    if len(response) < 3 or response[0] != 0x59 or response[1] != 0x02:
+        raise ValueError(f"不是 59 02 正响应：{response.hex().upper()}")
+    body = response[3:]
+    if len(body) % 4:
+        raise ValueError(
+            f"DTC 记录长度不是 4 的整数倍：{response.hex().upper()}")
+    return response[2], [
+        (int.from_bytes(body[i:i + 3], "big"), body[i + 3])
+        for i in range(0, len(body), 4)]
