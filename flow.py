@@ -237,6 +237,21 @@ def judge(step: Step, r: UdsResult) -> str:
     return "FAIL"
 
 
+def _rx_text(r: UdsResult) -> str:
+    return r.response.hex().upper() if r.response else "(timeout)"
+
+
+def _result_text(verdict: str, expect: bytes | None, r: UdsResult) -> str:
+    parts = [f"Result: {verdict}"]
+    if expect is not None:
+        parts.append(f"Expected: {expect.hex().upper()}")
+    if r.response is not None:
+        parts.append(f"Actual: {r.response.hex().upper()}")
+    if r.nrc is not None:
+        parts.append(f"NRC: 0x{r.nrc:02X}")
+    return " ".join(parts)
+
+
 def run_flow(cfg: dict, testcase: dict, driver, run_dir):
     """执行流程，返回汇总 dict（total/pass/fail/timeout）。driver 为已就绪的 CanDriver。"""
     diag = cfg["diagnostic"]
@@ -264,31 +279,31 @@ def run_flow(cfg: dict, testcase: dict, driver, run_dir):
         try:
             uds = UdsClient(transport, p2_ms=timing["p2_ms"],
                             p2star_ms=timing["p2star_ms"], log=log)
-            rec.event(f"流程开始：共 {len(steps)} 步，on_fail={on_fail}")
+            rec.event(f"Flow start: {len(steps)} steps, on_fail={on_fail}")
             for i, step in enumerate(steps, 1):
                 counters["total"] += 1
                 if step.security_access is not None:
                     lvl = levels[step.security_access]
-                    log(f"[{i}] {step.name} 安全解锁（{step.security_access} 级）")
+                    log(f"[{i}] {step.name} (security access: {step.security_access})")
                     try:
                         seed, key, result = perform_unlock(
                             uds, lvl, timeout_ms=step.timeout_ms, log=log)
                     except UnlockError as e:
                         result, verdict = UdsResult(), "FAIL"
-                        log(f"[{i}] {step.name} -> {e} 判定 FAIL")
+                        log(f"[{i}] Result: FAIL ({e})")
                     else:
                         ok = (result.response is not None
                               and result.response.startswith(
                                   bytes([0x67, lvl.key_sub])))
                         verdict = ("PASS" if ok
                                    else "TIMEOUT" if result.timeout else "FAIL")
-                        log(f"[{i}] {step.name} -> "
-                            f"{result.response.hex().upper() if result.response else '无响应'}"
-                            f" 判定 {verdict}"
-                            + (f"（NRC 0x{result.nrc:02X}）" if result.nrc is not None else ""))
+                        log(f"[{i}] UDS RX: {_rx_text(result)}")
+                        log(f"[{i}] {_result_text(verdict, None, result)}")
                     rec.step(i, step.name, "physical",
                              f"27{lvl.seed_sub:02X}+27{lvl.key_sub:02X}", result, verdict)
                 elif step.addressing == "functional":
+                    log(f"[{i}] {step.name} (functional addressing, no response expected)")
+                    log(f"[{i}] UDS TX: {step.request.hex().upper()}")
                     frames = encode(step.request, cfg["can"]["fd"])
                     for f in frames:
                         frame = CanFrame(diag["functional_id"], f,
@@ -296,26 +311,23 @@ def run_flow(cfg: dict, testcase: dict, driver, run_dir):
                                          bitrate_switch=cfg["can"]["fd"])
                         driver.send(frame)
                         rec.frame(frame, False)
-                    rec.event(f"[{i}] {step.name} 功能寻址发送 "
-                              f"{step.request.hex().upper()}（不等待响应）")
                     # 发完即记一行 SENT：CSV 行数与已执行步骤对齐、与 abort 跳过可区分
                     rec.step(i, step.name, step.addressing,
                              step.request.hex().upper(), UdsResult(), "SENT")
+                    log(f"[{i}] Result: SENT")
                     counters["pass"] += 1
                     time.sleep(delay_s(step))
                     continue
 
                 else:
-                    log(f"[{i}] {step.name} 发送 {step.request.hex().upper()}"
-                        f"（期望 {step.expect.hex().upper() if step.expect else '无'}）")
+                    log(f"[{i}] {step.name}")
+                    log(f"[{i}] UDS TX: {step.request.hex().upper()}")
                     result = uds.request(step.request, timeout_ms=step.timeout_ms)
                     verdict = judge(step, result)
                     rec.step(i, step.name, step.addressing,
                              step.request.hex().upper(), result, verdict)
-                    log(f"[{i}] {step.name} -> "
-                        f"{result.response.hex().upper() if result.response else '无响应'}"
-                        f" 判定 {verdict}"
-                        + (f"（NRC 0x{result.nrc:02X}）" if result.nrc is not None else ""))
+                    log(f"[{i}] UDS RX: {_rx_text(result)}")
+                    log(f"[{i}] {_result_text(verdict, step.expect, result)}")
                 if verdict == "PASS":
                     counters["pass"] += 1
                 elif verdict == "FAIL":
@@ -323,12 +335,12 @@ def run_flow(cfg: dict, testcase: dict, driver, run_dir):
                 else:
                     counters["timeout"] += 1
                 if verdict != "PASS" and on_fail == "abort":
-                    log("步骤失败且 on_fail=abort，中止流程")
+                    log("Step failed and on_fail=abort, aborting flow")
                     break
                 time.sleep(delay_s(step))
         finally:
             transport.stop()
-            rec.event(f"流程结束：PASS {counters['pass']} / FAIL {counters['fail']}"
+            rec.event(f"Flow finished: PASS {counters['pass']} / FAIL {counters['fail']}"
                       f" / TIMEOUT {counters['timeout']}"
-                      f" / 共 {counters['total']}/{len(steps)}")
+                      f" / total {counters['total']}/{len(steps)}")
     return counters

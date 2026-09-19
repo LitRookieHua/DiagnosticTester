@@ -76,7 +76,7 @@ class UdsClient:
                 continue  # 空响应视为链路噪声，丢弃继续等，deadline 兜底
             if len(resp) >= 3 and resp[0] == 0x7F and resp[2] == 0x78:
                 res.pendings += 1
-                self.log("收到 NRC 0x78 pending，继续等待（P2*）")
+                self.log("NRC 0x78 pending received, keep waiting (P2*)")
                 if total_deadline is None:
                     # P2* 锚定在首个 0x78 到达时刻，而非请求发出时刻
                     total_deadline = time.monotonic() + self.p2star_ms / 1000.0

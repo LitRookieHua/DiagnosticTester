@@ -261,19 +261,20 @@ def perform_unlock(uds: UdsClient, level: SecLevel, timeout_ms: int | None = Non
 
     r = uds.request(level.seed_request(), timeout_ms=timeout_ms)
     if r.timeout:
-        raise UnlockError(f"取种子超时（27 {level.seed_sub:02X}）", timeout=True)
+        raise UnlockError(f"seed request timeout (27 {level.seed_sub:02X})",
+                          timeout=True)
     if r.nrc is not None:
-        raise UnlockError(f"取种子负响应 NRC 0x{r.nrc:02X}")
+        raise UnlockError(f"seed request NRC 0x{r.nrc:02X}")
     expect = bytes([0x67, level.seed_sub])
     if r.response is None or not r.response.startswith(expect) \
             or len(r.response) < len(expect) + level.seed_len:
-        raise UnlockError(f"取种子响应异常："
-                          f"{r.response.hex().upper() if r.response else '无'}")
+        raise UnlockError(f"unexpected seed response: "
+                          f"{r.response.hex().upper() if r.response else 'none'}")
     seed = r.response[len(expect):len(expect) + level.seed_len]
-    log(f"安全解锁[{level.name}] 种子 {seed.hex().upper()}")
+    log(f"Security[{level.name}] seed {seed.hex().upper()}")
 
     key = level.compute_key(seed)
-    log(f"安全解锁[{level.name}] 密钥 {key.hex().upper()}")
+    log(f"Security[{level.name}] key {key.hex().upper()}")
     result = uds.request(bytes([0x27, level.key_sub]) + key,
                          timeout_ms=timeout_ms)
     return seed, key, result

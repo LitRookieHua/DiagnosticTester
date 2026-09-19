@@ -179,7 +179,7 @@ class IsoTpTransport:
                         self._asm.reset()
                         self._cf_rx_count = 0
                 if expired:
-                    self.log("ISO-TP 重组超时（N_Cr），丢弃当前报文")
+                    self.log("ISO-TP reassembly timeout (N_Cr), drop current message")
                 if frame is None:
                     continue
                 if self.tap:
@@ -213,7 +213,7 @@ class IsoTpTransport:
                 # 加退避，防止 recv 持续抛异常（如硬件故障）时空转刷日志
                 self._pump_error = e
                 try:
-                    self.log(f"ISO-TP pump 异常：{e!r}")
+                    self.log(f"ISO-TP pump error: {e!r}")
                 except Exception:
                     pass
                 time.sleep(0.05)
