@@ -78,3 +78,36 @@ def test_load_maps_empty_value_rejected(tmp_path):
     (tmp_path / "event_map.yaml").write_text('1: ""\n', encoding="utf-8")
     with pytest.raises(ConfigError, match="非空字符串"):
         dem.load_maps(tmp_path)
+
+
+def test_load_maps_string_hex_key(tmp_path):
+    # 字符串键（0x 前缀可选）与 int 键等价归一化
+    (tmp_path / "dtc_map.yaml").write_text(
+        '"EA0790": ByStringKey\n', encoding="utf-8")
+    (tmp_path / "event_map.yaml").write_text(
+        '"0x2": ByStringKey\n', encoding="utf-8")
+    maps = dem.load_maps(tmp_path)
+    assert maps["dtc_map"] == {0xEA0790: "ByStringKey"}
+    assert maps["event_map"] == {2: "ByStringKey"}
+
+
+def test_load_maps_bad_hex_string_key(tmp_path):
+    (tmp_path / "dtc_map.yaml").write_text(
+        '"XYZ": Bad\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="不是合法十六进制"):
+        dem.load_maps(tmp_path)
+
+
+def test_load_maps_duplicate_normalized_key(tmp_path):
+    # int 键与等值字符串键视为重复，必须报错而不是静默覆盖
+    (tmp_path / "dtc_map.yaml").write_text(
+        '0xEA0788: First\n"EA0788": Second\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="重复键"):
+        dem.load_maps(tmp_path)
+
+
+def test_load_maps_gbk_file_rejected(tmp_path):
+    p = tmp_path / "dtc_map.yaml"
+    p.write_bytes("0xEA0788: 名字\n".encode("gbk"))  # 非 UTF-8
+    with pytest.raises(ConfigError):
+        dem.load_maps(tmp_path)

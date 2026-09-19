@@ -33,7 +33,7 @@ DTC_STATUS_BITS = [
 def _load_yaml_dict(path: Path, what: str) -> dict:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as e:
+    except (yaml.YAMLError, UnicodeDecodeError) as e:
         raise ConfigError(f"{path.name}: YAML 语法错误：{e}")
     if raw is None:
         return {}
@@ -83,6 +83,8 @@ def _load_table(config_dir: Path, name: str, nibbles: int,
     for k, v in _load_yaml_dict(path, name).items():
         where = f"{path.name} 键 {k!r}"
         code = _check_code_key(k, where, nibbles)
+        if code in table:
+            raise ConfigError(f"{where}: 重复键（{code:X} 出现多次）")
         if min_key is not None and code < min_key:
             raise ConfigError(f"{where}: 不能小于 {min_key}")
         if not isinstance(v, str) or not v.strip():
