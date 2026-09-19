@@ -117,7 +117,7 @@ def test_run_log_dir_configs_root_uses_config_stem(run_cli, tmp_path):
 
 
 def test_probe_log_dir_uses_project(run_cli, tmp_path):
-    # chat/probe/unlock 的日志目录 = 项目名_命令名
+    # chat/probe/unlock/dem 的日志目录 = 项目名_命令名
     mock = MockCanDriver()  # 无响应超时无妨，目录已建
     run_cli(["probe", "1003"], ecu=mock, cfg_name="CMC_RX/rx.yaml")
     assert any(p.is_dir() and p.name.startswith("CMC_RX_probe_")
@@ -248,12 +248,12 @@ def test_dem_all_timeout_exit_1(run_cli):
     assert out.count("(超时无响应)") == 5
 
 
-def test_dem_bad_map_exit_2(run_cli, tmp_path):
+def test_dem_bad_map_exit_2(run_cli, tmp_path, capsys):
     # map 文件校验失败 → main 的 ConfigError 处理 → 退出码 2，不触硬件
     (tmp_path / "dtc_map.yaml").write_text("0xEA0788: 123\n", encoding="utf-8")
-    mock = MockCanDriver()
-    code, out = run_cli(["dem"], ecu=mock)
+    code, _ = run_cli(["dem"])
     assert code == 2
+    assert "dtc_map" in capsys.readouterr().err
 
 
 def test_dem_report_written_to_run_log(run_cli, tmp_path):

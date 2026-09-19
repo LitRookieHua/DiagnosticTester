@@ -20,14 +20,15 @@
       Chery_T1LFL1/t1lfl1.yaml
       Chery_V2XEU/v2xeu.yaml
       example.yaml / example_mock.yaml
+      <项目>/dtc_map.yaml      # 可选：DTC → 名称（dem 子命令用）
+      event_map.yaml / fimfid_map.yaml / dem_dids.yaml   # 同上，均可选
+                                # 示例见 configs/ 根
     testcase/                  # 测试用例（每个流程一份，目录与 configs 对应）
       BAIC_N60/verify_1363_final.yaml   # steps / on_fail / 可选 timing 覆盖
       CMC_RX/verify_f4cmc59.yaml
       Chery_T1LFL1/verify_2cf5_clear_2a1e.yaml
       example.yaml / example_mock.yaml
       ...
-    configs/<项目>/dtc_map.yaml    # 可选：DTC → 名称（dem 子命令用）
-    event_map.yaml / fimfid_map.yaml / dem_dids.yaml   # 同左，均可选
     logs/                      # 每次运行的 run.log / result.csv / trace.blf
 
 同一测试用例换 `--config` 即可跑不同项目。
@@ -154,7 +155,7 @@ security:
 ## 输出文件
 
 每次运行生成 `logs/<项目>_<前缀>_<时间戳>/`（前缀：run 为用例名，
-chat/probe/unlock 为命令名；项目名取配置的子目录，如
+chat/probe/unlock/dem 为命令名；项目名取配置的子目录，如
 `configs/BAIC_N60/n60.yaml` → BAIC_N60，configs 根下的配置取文件名）：
 
 - `run.log`  人读文本流水（步骤、判定、NRC、0x78 事件、解锁种子/密钥）
@@ -166,8 +167,8 @@ chat/probe/unlock 为命令名；项目名取配置的子目录，如
 | 码 | 含义 |
 | --- | --- |
 | 0 | 成功 |
-| 1 | run：有 FAIL/TIMEOUT；probe/unlock：ECU 超时无响应 |
-| 2 | 配置错误（含未知安全等级）；probe/unlock：收到负响应 |
+| 1 | run：有 FAIL/TIMEOUT；probe/unlock：ECU 超时无响应；dem：任一故障项超时/负响应/解析失败 |
+| 2 | 配置错误（含未知安全等级）；probe/unlock：收到负响应；dem：配置或 map 文件校验错误 |
 | 3 | 运行期异常（驱动/传输失败等） |
 | 130 | Ctrl+C 中断（已落盘记录不丢） |
 
