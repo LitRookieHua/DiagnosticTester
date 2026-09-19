@@ -17,7 +17,7 @@
 | 2 | 当前 event | `22 2A0D` |
 | 3 | 本周期 event | `22 2A0E` |
 | 4 | 历史 event | `22 2A0F` |
-| 5 | 当前 fimfid | `22 2A1E` |
+| 5 | 当前 fimfid | `22 2A1D` |
 
 通用设计：map 表按项目目录可选提供，未配置的项目回退显示原始值。
 
@@ -48,7 +48,7 @@ configs/<项目>/
 event_current: 0x2A0D
 event_cycle: 0x2A0E
 event_history: 0x2A0F
-fimfid_current: 0x2A1E
+fimfid_current: 0x2A1D
 ```
 
 - **发现规则**：`dem` 子命令按 `--config` 所在目录逐个找这四个文件，
@@ -109,7 +109,7 @@ event/fimfid 编号不在 map → `13:（未在 event_map 中）`。
   3: DemEvent_HCTDTC_3
   13:（未在 event_map 中）
 
-[当前 fimfid]（22 2A1E）
+[当前 fimfid]（22 2A1D）
   2: FiM_Function_Xxx
 =====================
 ```

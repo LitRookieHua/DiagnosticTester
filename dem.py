@@ -15,7 +15,7 @@ DEFAULT_DIDS = {
     "event_current": 0x2A0D,
     "event_cycle": 0x2A0E,
     "event_history": 0x2A0F,
-    "fimfid_current": 0x2A1E,
+    "fimfid_current": 0x2A1D,
 }
 
 DTC_STATUS_BITS = [

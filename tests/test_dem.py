@@ -32,8 +32,8 @@ def _ok_uds() -> FakeUds:
             response=bytes.fromhex("622A0E00")),
         bytes.fromhex("222A0F"): UdsResult(
             response=bytes.fromhex("622A0F0401")),
-        bytes.fromhex("222A1E"): UdsResult(
-            response=bytes.fromhex("622A1E02")),
+        bytes.fromhex("222A1D"): UdsResult(
+            response=bytes.fromhex("622A1D02")),
     })
 
 
@@ -233,7 +233,7 @@ def test_run_dem_full_report():
     assert "[历史 event]（22 2A0F）" in text
     assert "3:（未在 event_map 中）" in text
     assert "9:（未在 event_map 中）" in text
-    assert "[当前 fimfid]（22 2A1E）" in text
+    assert "[当前 fimfid]（22 2A1D）" in text
     assert "2: FiM_Function_Xxx" in text
 
 
