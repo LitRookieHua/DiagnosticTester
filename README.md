@@ -9,7 +9,7 @@
     python diag.py run testcase/example.yaml --config configs/example.yaml
 
 前提：ZLGCAN SDK 已按 `vendor/zlgcan/README.md` 组装、CAN 卡已插、
-目标 ECU 已上电。免硬件体验可先跑
+目标 ECU 已上电；testcase/ 不入仓库，首次使用需自备用例文件。免硬件体验可先跑
 `python diag.py run testcase/example_mock.yaml --config configs/example_mock.yaml`。
 
 ## 目录结构
@@ -23,13 +23,9 @@
       <项目>/dtc_map.yaml      # 可选：DTC → 名称（dem 子命令用）
       event_map.yaml / fimfid_map.yaml / dem_dids.yaml   # 同上，均可选
                                 # 示例见 configs/ 根
-    testcase/                  # 测试用例（每个流程一份，目录与 configs 对应）
-      BAIC_N60/verify_1363_final.yaml   # steps / on_fail / 可选 timing 覆盖
-      CMC_RX/verify_f4cmc59.yaml
-      Chery_T1LFL1/verify_2cf5_clear_2a1e.yaml
-      example.yaml / example_mock.yaml
-      ...
-    logs/                      # 每次运行的 run.log / result.csv / trace.blf
+    testcase/                  # 测试用例（本地维护，不入仓库；目录与 configs 对应）
+      <项目>/<流程>.yaml       # steps / on_fail / 可选 timing 覆盖
+    logs/                      # 每次运行的 run.log / result.csv / trace.blf（不入仓库）
 
 同一测试用例换 `--config` 即可跑不同项目。
 
@@ -58,7 +54,7 @@
   间隔（默认 100）。三项均可省略。
 - **security** — 0x27 安全解锁等级（见下）。可选。
 
-## 测试用例（testcase/）
+## 测试用例（testcase/，本地维护不入仓库）
 
 只含流程，共三节：
 

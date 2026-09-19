@@ -4,3 +4,4 @@ logs/
 vendor/zlgcan/*
 !vendor/zlgcan/README.md
 zlg/
+testcase/

@@ -1,3 +1,0 @@
-steps:
-  - {name: 进扩展会话, request: "1003", expect: "5003"}
-on_fail: continue
