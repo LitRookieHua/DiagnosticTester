@@ -133,3 +133,13 @@ def parse_1902(response: bytes):
     return response[2], [
         (int.from_bytes(body[i:i + 3], "big"), body[i + 3])
         for i in range(0, len(body), 4)]
+
+
+def parse_bitmap(payload: bytes) -> list[int]:
+    """位图字节 → 置位编号列表（byte0 bit0=1、byte1 bit0=9，从 1 起）。"""
+    nums = []
+    for i, byte in enumerate(payload):
+        for bit in range(8):
+            if byte >> bit & 1:
+                nums.append(i * 8 + bit + 1)
+    return nums

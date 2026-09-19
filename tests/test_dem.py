@@ -151,3 +151,23 @@ def test_decode_status():
     assert dem.decode_status(0xD0) == ["testNotCompletedSinceLastClear",
                                        "testNotCompletedThisOperationCycle",
                                        "warningIndicatorRequested"]
+
+
+# ---------- parse_bitmap ----------
+
+def test_parse_bitmap_single_byte():
+    assert dem.parse_bitmap(bytes([0x21])) == [1, 6]
+
+
+def test_parse_bitmap_multi_byte():
+    assert dem.parse_bitmap(bytes([0x00, 0x01])) == [9]
+    assert dem.parse_bitmap(bytes([0x04, 0x01])) == [3, 9]
+
+
+def test_parse_bitmap_all_bits():
+    assert dem.parse_bitmap(bytes([0xFF])) == list(range(1, 9))
+
+
+def test_parse_bitmap_zero_and_empty():
+    assert dem.parse_bitmap(bytes([0x00])) == []
+    assert dem.parse_bitmap(b"") == []
