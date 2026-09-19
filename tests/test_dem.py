@@ -148,3 +148,6 @@ def test_decode_status():
         "pendingDTC", "confirmedDTC", "testFailedSinceLastClear"]
     assert dem.decode_status(0x00) == []
     assert dem.decode_status(0x09) == ["testFailed", "confirmedDTC"]
+    assert dem.decode_status(0xD0) == ["testNotCompletedSinceLastClear",
+                                       "testNotCompletedThisOperationCycle",
+                                       "warningIndicatorRequested"]
