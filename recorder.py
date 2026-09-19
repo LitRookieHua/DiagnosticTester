@@ -67,6 +67,14 @@ class Recorder:
             self._txt.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
             self._txt.flush()
 
+    def blank(self):
+        """写 run.log 空行（步骤间分隔）。"""
+        with self._txt_lock:
+            if self._closed:
+                return
+            self._txt.write("\n")
+            self._txt.flush()
+
     def frame(self, frame, is_rx: bool, ts: float | None = None):
         msg = can.Message(timestamp=ts if ts is not None else time.time(),
                           arbitration_id=frame.can_id, data=frame.data,

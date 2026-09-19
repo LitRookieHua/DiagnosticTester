@@ -282,6 +282,7 @@ def run_flow(cfg: dict, testcase: dict, driver, run_dir):
             rec.event(f"Flow start: {len(steps)} steps, on_fail={on_fail}")
             for i, step in enumerate(steps, 1):
                 counters["total"] += 1
+                rec.blank()
                 if step.security_access is not None:
                     lvl = levels[step.security_access]
                     log(f"[{i}] {step.name} (security access: {step.security_access})")
