@@ -8,6 +8,9 @@ class FakeTransport:
         self.requests = []
         self.responses = list(responses or [])
 
+    def rx_pending(self):
+        return False
+
     def send_payload(self, payload):
         self.requests.append(payload)
 
@@ -37,4 +40,25 @@ class DelayedPendingTransport(FakeTransport):
     def recv_payload(self, timeout_s):
         if self.responses:
             time.sleep(0.05)
+        return super().recv_payload(timeout_s)
+
+
+class SlowAssemblyTransport(FakeTransport):
+    """多帧响应重组耗时超过 P2：rx_pending 到期前为 True，之后回完整响应。
+
+    模拟真机上 22 2A0D 的位图响应：FF 立即到达，但 32 个 CF 需 ~320ms
+    重组完成；P2 只应约束到响应首帧（FF），不应把重组中途的报文判超时。
+    """
+
+    def __init__(self, response, assemble_s):
+        super().__init__([response])
+        self._deadline = time.monotonic() + assemble_s
+
+    def rx_pending(self):
+        return time.monotonic() < self._deadline
+
+    def recv_payload(self, timeout_s):
+        if time.monotonic() < self._deadline:
+            time.sleep(min(timeout_s, 0.005))
+            return None
         return super().recv_payload(timeout_s)

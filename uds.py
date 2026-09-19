@@ -4,6 +4,9 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+# 多帧重组期间每次顺延的等待窗（重组间隙由传输层 N_Cr 保护）
+_ASSEMBLY_POLL_S = 0.05
+
 
 @dataclass
 class UdsResult:
@@ -36,6 +39,9 @@ class UdsClient:
         - timeout_ms 只覆盖 P2（单响应超时），不约束收到首个 0x78 后的
           P2* 等待；未指定时用 self.p2_ms。timeout_ms=0 表示发送后
           立即判定超时。
+        - P2 只约束到响应首帧（FF 到达）：多帧响应的 CF 重组由传输层
+          N_Cr 保护，重组期间（transport.rx_pending()）自动顺延 deadline，
+          不会把传输中途的报文判超时（真机上 228 字节位图需 ~320ms）。
         - P2* 为单个总窗口：从收到首个 0x78 的时刻起算 self.p2star_ms，
           后续 0x78 不重置窗口（设计决策：本工具定位轻量诊断，有界窗口
           防 ECU 无限 pending 导致客户端挂死）。
@@ -55,6 +61,11 @@ class UdsClient:
             now = time.monotonic()
             limit = total_deadline if total_deadline is not None else deadline
             if now >= limit:
+                if (total_deadline is None
+                        and self.transport.rx_pending()):
+                    # FF 已收、CF 重组中：响应已开始，重组交给 N_Cr
+                    deadline = now + _ASSEMBLY_POLL_S
+                    continue
                 res.timeout = True
                 res.elapsed_ms = (now - t0) * 1000.0
                 return res

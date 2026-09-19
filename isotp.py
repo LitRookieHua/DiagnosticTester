@@ -225,6 +225,11 @@ class IsoTpTransport:
         if self.tap:
             self.tap(frame, False)
 
+    def rx_pending(self) -> bool:
+        """FF 已收、多帧响应重组中（CF 间隙未超 N_Cr）。"""
+        with self._state_lock:
+            return self._asm.total is not None
+
     def clear_rx(self):
         with self._state_lock:  # reset+drain 整体持锁，与 pump 的 feed/入队互斥
             self._asm.reset()

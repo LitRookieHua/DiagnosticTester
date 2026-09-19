@@ -1,4 +1,5 @@
-from fake_transport import FakeTransport, DelayedPendingTransport, EndlessPendingTransport
+from fake_transport import (FakeTransport, DelayedPendingTransport,
+                            EndlessPendingTransport, SlowAssemblyTransport)
 from uds import UdsClient
 
 
@@ -68,6 +69,19 @@ def test_p2star_anchored_at_first_pending():
     r = c.request(bytes.fromhex("22F195"))
     assert r.timeout
     assert 150 <= r.elapsed_ms < 2000
+
+
+def test_multiframe_assembly_slower_than_p2_not_timeout():
+    # 真机回归：22 2A0D 位图 228 字节需 32 个 CF（~320ms）重组完成，超过
+    # P2=50ms；P2 只应约束到响应首帧（FF），重组期间不应判超时
+    ft = SlowAssemblyTransport(bytes.fromhex("622A0D") + b"\x00" * 100,
+                               assemble_s=0.15)
+    c = UdsClient(ft, p2_ms=50, p2star_ms=5000)
+    r = c.request(bytes.fromhex("222A0D"))
+    assert r.ok
+    assert not r.timeout
+    assert r.response.startswith(bytes.fromhex("622A0D"))
+    assert r.elapsed_ms >= 150
 
 
 def test_request_bytes_passed_through():
