@@ -200,3 +200,56 @@ def test_chat_unlock_bad_level_continues(run_cli, monkeypatch):
     code, out = run_cli(["chat"], ecu=mock)
     assert code == 0
     assert "ota" in out  # 未知等级应提示而不是崩溃
+
+
+# ---------- dem ----------
+
+DEM_RESP = {
+    "19020F": "5902FFEA07882F",
+    "222A0D": "622A0D21",
+    "222A0E": "622A0E00",
+    "222A0F": "622A0F0401",
+    "222A1E": "622A1E02",
+}
+
+
+def _dem_ecu(mock):
+    """按 DEM_RESP 脚本回帧的假 ECU。"""
+    def on_send(frame):
+        req = _parse_sf(frame.data)
+        resp = DEM_RESP.get(req.hex().upper())
+        if resp is not None:
+            mock.push_rx(0x78C, _sf_rx(bytes.fromhex(resp)))
+    return on_send
+
+
+def test_dem_report(run_cli, tmp_path):
+    (tmp_path / "dtc_map.yaml").write_text(
+        "0xEA0788: DemDTC_U2A0788_CAN_ACAN_Busoff\n", encoding="utf-8")
+    (tmp_path / "event_map.yaml").write_text(
+        "1: DemEvent_HCTDTC_1\n", encoding="utf-8")
+    (tmp_path / "fimfid_map.yaml").write_text(
+        "2: FiM_Function_Xxx\n", encoding="utf-8")
+    mock = MockCanDriver()
+    mock.on_send = _dem_ecu(mock)
+    code, out = run_cli(["dem"], ecu=mock)
+    assert code == 0
+    assert "DemDTC_U2A0788_CAN_ACAN_Busoff" in out
+    assert "1: DemEvent_HCTDTC_1" in out
+    assert "6:（未在 event_map 中）" in out
+    assert "（无置位 event）" in out
+    assert "2: FiM_Function_Xxx" in out
+
+
+def test_dem_all_timeout_exit_1(run_cli):
+    mock = MockCanDriver()  # 不回帧
+    code, out = run_cli(["dem"], ecu=mock)
+    assert code == 1
+    assert out.count("(超时无响应)") == 5
+
+
+def test_dem_log_dir_uses_project(run_cli, tmp_path):
+    mock = MockCanDriver()  # 无响应无妨，目录已建
+    run_cli(["dem"], ecu=mock, cfg_name="CMC_RX/rx.yaml")
+    assert any(p.is_dir() and p.name.startswith("CMC_RX_dem_")
+               for p in tmp_path.iterdir())

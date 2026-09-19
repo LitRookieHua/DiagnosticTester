@@ -271,6 +271,15 @@ def test_run_dem_empty_bitmap():
     assert "(空位图)" in "\n".join(lines)
 
 
+def test_run_dem_wrong_did_echo():
+    fake = _ok_uds()
+    fake.responses[bytes.fromhex("222A0D")] = UdsResult(
+        response=bytes.fromhex("622B0101"))
+    lines = []
+    assert dem.run_dem(fake, _maps(), lines.append) == 1
+    assert "响应不是预期的 62 2A0D：622B0101" in "\n".join(lines)
+
+
 def test_run_dem_without_maps_shows_raw():
     fake = _ok_uds()
     maps = {"dids": dict(dem.DEFAULT_DIDS), "dtc_map": {},
