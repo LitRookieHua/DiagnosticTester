@@ -221,20 +221,26 @@ def test_run_dem_full_report():
     assert dem.run_dem(_ok_uds(), _maps(), lines.append) == 0
     text = "\n".join(lines)
     assert "===== DEM 故障报告 =====" in text
-    assert "[DTC 故障]（19 02 0F）" in text
+    assert "[DTC 故障]" in text
+    assert "UDS TX: 19 02 0F" in text
+    assert "UDS RX: 59 02 FF EA 07 88 2F" in text
     assert ("EA0788  DemDTC_U2A0788_CAN_ACAN_Busoff  0x2F"
             "  testFailed|testFailedThisOperationCycle|pendingDTC"
             "|confirmedDTC|testFailedSinceLastClear") in text
-    assert "[当前 event]（22 2A0D）" in text
+    assert "[当前 event]" in text
+    assert "UDS TX: 22 2A 0D" in text
     assert "1: DemEvent_HCTDTC_1" in text
     assert "6:（未在 event_map 中）" in text
-    assert "[本周期 event]（22 2A0E）" in text
+    assert "[本周期 event]" in text
     assert "（无置位 event）" in text
-    assert "[历史 event]（22 2A0F）" in text
+    assert "[历史 event]" in text
     assert "3:（未在 event_map 中）" in text
     assert "9:（未在 event_map 中）" in text
-    assert "[当前 fimfid]（22 2A1D）" in text
+    assert "[当前 fimfid]" in text
     assert "2: FiM_Function_Xxx" in text
+    # 节间空行：五节之间恰好 4 个空行，收尾线紧跟最后一节
+    assert lines.count("") == 4
+    assert lines[-1] == "====================="
 
 
 def test_run_dem_no_dtc_records():
@@ -254,8 +260,8 @@ def test_run_dem_timeout_and_nrc_do_not_stop_report():
     lines = []
     assert dem.run_dem(fake, _maps(), lines.append) == 1
     text = "\n".join(lines)
-    assert text.count("(超时无响应)") == 1  # 只有 19 超时；2A0D 走 NRC 分支
-    assert "(NRC 0x31)" in text
+    assert text.count("UDS RX: (timeout)") == 1  # 只有 19 超时；2A0D 走 NRC 分支
+    assert "UDS RX: 7F 22 31" in text
     assert "2: FiM_Function_Xxx" in text  # 后续节照常输出
 
 
@@ -267,7 +273,7 @@ def test_run_dem_bad_1902_length_shows_raw():
     assert dem.run_dem(fake, _maps(), lines.append) == 1
     text = "\n".join(lines)
     assert "解析失败" in text
-    assert "5902FFEA0788" in text
+    assert "UDS RX: 59 02 FF EA 07 88" in text
 
 
 def test_run_dem_empty_bitmap():
@@ -285,7 +291,8 @@ def test_run_dem_wrong_did_echo():
         response=bytes.fromhex("622B0101"))
     lines = []
     assert dem.run_dem(fake, _maps(), lines.append) == 1
-    assert "响应不是预期的 62 2A0D：622B0101" in "\n".join(lines)
+    assert "响应不是预期的 62 2A0D" in "\n".join(lines)
+    assert "UDS RX: 62 2B 01 01" in "\n".join(lines)
 
 
 def test_run_dem_without_maps_shows_raw():

@@ -158,7 +158,10 @@ def cmd_dem(args):
     with open_session(cfg, config_project(args.config), "dem") as (_driver, rec, _transport, uds):
         def emit(msg):
             print(msg)
-            rec.event(msg)
+            if msg:
+                rec.event(msg)
+            else:
+                rec.blank()  # 节间空行：落盘不带时间戳前缀
         return run_dem(uds, maps, emit)
 
 

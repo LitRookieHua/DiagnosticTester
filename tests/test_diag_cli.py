@@ -245,7 +245,7 @@ def test_dem_all_timeout_exit_1(run_cli):
     mock = MockCanDriver()  # 不回帧
     code, out = run_cli(["dem"], ecu=mock)
     assert code == 1
-    assert out.count("(超时无响应)") == 5
+    assert out.count("UDS RX: (timeout)") == 5
 
 
 def test_dem_bad_map_exit_2(run_cli, tmp_path, capsys):

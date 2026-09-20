@@ -171,19 +171,16 @@ def _hex(request: bytes) -> str:
     return " ".join(f"{b:02X}" for b in request)
 
 
-def _request(uds, emit, request: bytes, title: str, disp: str | None = None):
-    """发一项请求；返回 UdsResult，超时/负响应时返回 None（已输出失败文案）。
-
-    disp 覆盖标题中的请求显示；默认逐字节十六进制（如 19 02 0F），
-    DID 读取传 "22 2A0D" 形式。
-    """
-    emit(f"[{title}]（{disp if disp is not None else _hex(request)}）")
+def _request(uds, emit, request: bytes, title: str):
+    """发一项请求；返回 UdsResult，超时/负响应时返回 None（已输出 RX 行）。"""
+    emit(f"[{title}]")
+    emit(f"UDS TX: {_hex(request)}")
     r = uds.request(request)
     if r.timeout:
-        emit("  (超时无响应)")
+        emit("UDS RX: (timeout)")
         return None
+    emit(f"UDS RX: {_hex(r.response)}")
     if r.nrc is not None:
-        emit(f"  (NRC 0x{r.nrc:02X})")
         return None
     return r
 
@@ -196,7 +193,6 @@ def _dem_dtc(uds, maps, emit) -> bool:
         _mask, records = parse_1902(r.response)
     except ValueError as e:
         emit(f"  解析失败：{e}")
-        emit(f"  原始响应：{r.response.hex().upper()}")
         return False
     if not records:
         emit("  无故障记录")
@@ -211,11 +207,11 @@ def _dem_bitmap(uds, maps, emit, did_key: str, table_key: str,
                 title: str, empty_label: str) -> bool:
     did = maps["dids"][did_key]
     request = bytes([0x22, did >> 8, did & 0xFF])
-    r = _request(uds, emit, request, title, disp=f"22 {did:04X}")
+    r = _request(uds, emit, request, title)
     if r is None:
         return False
     if r.response[0] != 0x62 or r.response[1:3] != request[1:3]:
-        emit(f"  响应不是预期的 62 {did:04X}：{r.response.hex().upper()}")
+        emit(f"  响应不是预期的 62 {did:04X}")
         return False
     payload = r.response[3:]
     if not payload:
@@ -236,15 +232,15 @@ def _dem_bitmap(uds, maps, emit, did_key: str, table_key: str,
 def run_dem(uds, maps, emit) -> int:
     """执行五项故障拉取，逐行 emit 报告；返回退出码（全正响应 0，否则 1）。"""
     emit("===== DEM 故障报告 =====")
-    ok = True
-    if not _dem_dtc(uds, maps, emit):
-        ok = False
+    ok = _dem_dtc(uds, maps, emit)
     for did_key, title in [("event_current", "当前 event"),
                            ("event_cycle", "本周期 event"),
                            ("event_history", "历史 event")]:
+        emit("")
         if not _dem_bitmap(uds, maps, emit, did_key, "event_map",
                            title, "（无置位 event）"):
             ok = False
+    emit("")
     if not _dem_bitmap(uds, maps, emit, "fimfid_current", "fimfid_map",
                        "当前 fimfid", "（无置位 fimfid）"):
         ok = False
