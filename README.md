@@ -14,11 +14,11 @@
 
 ## 目录结构
 
-    configs/                    # 项目配置（每个项目一份，<客户>_<项目名>）
-      BAIC_N60/n60.yaml        # can / diagnostic / timing / security
-      CMC_RX/rx.yaml
-      Chery_T1LFL1/t1lfl1.yaml
-      Chery_V2XEU/v2xeu.yaml
+    configs/                    # 项目配置（每个项目一个同名目录，目录名 = 配置文件名）
+      n60/n60.yaml             # can / diagnostic / timing / security
+      rx/rx.yaml
+      t1lfl1/t1lfl1.yaml
+      v2xeu/v2xeu.yaml
       example.yaml / example_mock.yaml
       <项目>/dtc_map.yaml      # 可选：DTC → 名称（dem 子命令用）
       event_map.yaml / fimfid_map.yaml / dem_dids.yaml   # 同上，均可选
@@ -33,11 +33,11 @@
 
 | 命令 | 用途 | 示例 |
 | --- | --- | --- |
-| `run` | 跑测试用例 | `python diag.py run testcase/BAIC_N60/x.yaml --config configs/BAIC_N60/n60.yaml` |
-| `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/BAIC_N60/n60.yaml` |
-| `probe` | 单发一条请求 | `python diag.py probe --config configs/BAIC_N60/n60.yaml 22F195` |
-| `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/BAIC_N60/n60.yaml app` |
-| `dem` | 故障检测报告（DTC/event/fimfid） | `python diag.py dem --config configs/CMC_RX/rx.yaml` |
+| `run` | 跑测试用例 | `python diag.py run testcase/n60/x.yaml --config configs/n60/n60.yaml` |
+| `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/n60/n60.yaml` |
+| `probe` | 单发一条请求 | `python diag.py probe --config configs/n60/n60.yaml 22F195` |
+| `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/n60/n60.yaml app` |
+| `dem` | 故障检测报告（DTC/event/fimfid） | `python diag.py dem --config configs/rx/rx.yaml` |
 
 ## 配置文件（configs/）
 
@@ -102,7 +102,7 @@ security:
 
 ## run — 跑测试用例
 
-    python diag.py run testcase/BAIC_N60/x.yaml --config configs/BAIC_N60/n60.yaml
+    python diag.py run testcase/n60/x.yaml --config configs/n60/n60.yaml
 
 输出汇总与退出码：
 
@@ -113,7 +113,7 @@ security:
 
 ## chat — 交互模式
 
-    python diag.py chat --config configs/BAIC_N60/n60.yaml
+    python diag.py chat --config configs/n60/n60.yaml
 
 逐条输入十六进制请求，即时显示响应与耗时：
 
@@ -131,12 +131,12 @@ security:
 
 ## probe — 单发一条
 
-    python diag.py probe --config configs/BAIC_N60/n60.yaml 22F195
+    python diag.py probe --config configs/n60/n60.yaml 22F195
     响应：62F19520533031302E303039
 
 ## unlock — 安全解锁
 
-    python diag.py unlock --config configs/BAIC_N60/n60.yaml app
+    python diag.py unlock --config configs/n60/n60.yaml app
 
 等级来自配置 security 节 + 内置 develop（61/62）。
 
@@ -152,7 +152,7 @@ security:
 
 每次运行生成 `logs/<项目>_<前缀>_<时间戳>/`（前缀：run 为用例名，
 chat/probe/unlock/dem 为命令名；项目名取配置的子目录，如
-`configs/BAIC_N60/n60.yaml` → BAIC_N60，configs 根下的配置取文件名）：
+`configs/n60/n60.yaml` → n60，configs 根下的配置取文件名）：
 
 - `run.log`  人读文本流水（步骤、判定、NRC、0x78 事件、解锁种子/密钥）
 - `result.csv`  UDS 级结果表（seq/步骤/请求/响应/NRC/判定/耗时/时间戳）

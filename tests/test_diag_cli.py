@@ -103,8 +103,8 @@ def test_run_smoke(run_cli):
 def test_run_log_dir_uses_project_and_testcase_stem(run_cli, tmp_path):
     # 日志目录前缀 = 项目名（config 子目录）_ testcase 文件名
     mock = MockCanDriver()
-    run_cli(["run", "tc"], ecu=mock, cfg_name="BAIC_N60/n60.yaml")
-    assert any(p.is_dir() and p.name.startswith("BAIC_N60_tc_")
+    run_cli(["run", "tc"], ecu=mock, cfg_name="n60/n60.yaml")
+    assert any(p.is_dir() and p.name.startswith("n60_tc_")
                for p in tmp_path.iterdir())
 
 
@@ -119,8 +119,8 @@ def test_run_log_dir_configs_root_uses_config_stem(run_cli, tmp_path):
 def test_probe_log_dir_uses_project(run_cli, tmp_path):
     # chat/probe/unlock/dem 的日志目录 = 项目名_命令名
     mock = MockCanDriver()  # 无响应超时无妨，目录已建
-    run_cli(["probe", "1003"], ecu=mock, cfg_name="CMC_RX/rx.yaml")
-    assert any(p.is_dir() and p.name.startswith("CMC_RX_probe_")
+    run_cli(["probe", "1003"], ecu=mock, cfg_name="rx/rx.yaml")
+    assert any(p.is_dir() and p.name.startswith("rx_probe_")
                for p in tmp_path.iterdir())
 
 
@@ -275,6 +275,6 @@ def test_dem_report_written_to_run_log(run_cli, tmp_path):
 
 def test_dem_log_dir_uses_project(run_cli, tmp_path):
     mock = MockCanDriver()  # 无响应无妨，目录已建
-    run_cli(["dem"], ecu=mock, cfg_name="CMC_RX/rx.yaml")
-    assert any(p.is_dir() and p.name.startswith("CMC_RX_dem_")
+    run_cli(["dem"], ecu=mock, cfg_name="rx/rx.yaml")
+    assert any(p.is_dir() and p.name.startswith("rx_dem_")
                for p in tmp_path.iterdir())
