@@ -19,6 +19,7 @@
       rx/rx.yaml
       t1lfl1/t1lfl1.yaml
       v2xeu/v2xeu.yaml
+      t75/t75.yaml
       example.yaml / example_mock.yaml
       <项目>/dtc_map.yaml      # 可选：DTC → 名称（dem 子命令用）
       event_map.yaml / fimfid_map.yaml / dem_dids.yaml   # 同上，均可选
@@ -95,6 +96,7 @@ security:
 | `cmc_mask_app` | RX app | `mask_table`（16×u32） | cpj_cmc seedToKeyApp |
 | `cmc_mask_boot` | RX boot | `mask_table` | cpj_cmc seedToKeyBoot |
 | `t1lfl1_crc16` | T1LFL1 app | 无 | CRC 式位运算（veh_t1lfl1 源码），2B→2B |
+| `gac_shift_xor` | T75 app/boot | `constant`（4B hex） | uint32 移位乘法异或（cpj_gac 源码），4B→4B |
 
 **develop（61/62，公司内部通用）内置**：所有项目自动可用，无需配置；
 配置里写 `security.develop` 可覆盖。新客户算法 = 在 security.py 注册表

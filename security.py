@@ -8,6 +8,7 @@
 - aes_cmac_df_token / aes_cmac_seed — cpj_baic n60 变体
 - cmc_mask_app / cmc_mask_boot — cpj_cmc（RX）
 - t1lfl1_crc16 — cpj_chery veh_t1lfl1（T1LFL1 app，CRC 式位运算）
+- gac_shift_xor — cpj_gac（T75 app/boot，移位乘法异或，常量分等级）
 """
 from __future__ import annotations
 
@@ -130,6 +131,21 @@ def _key_cmc_mask_boot(seed: bytes, params: dict, df: bytes | None) -> bytes:
                             params["mask_table"]).to_bytes(4, "big")
 
 
+def _key_gac_shift_xor(seed: bytes, params: dict, df: bytes | None) -> bytes:
+    """GAC T75 app/boot：uint32 移位乘法异或，密钥 4 字节大端。
+
+    对照 cpj_gac ov_dia_0x27_security_access.cpp computeKey：
+    k=(seed>>9)|(seed<<22); k*=6; k^=constant; k=(k<<14)|(k>>17)。
+    全程 uint32 回绕；app/boot 仅 constant 不同。
+    """
+    s = int.from_bytes(seed, "big")
+    k = ((s >> 9) | (s << 22)) & 0xFFFFFFFF
+    k = (k * 6) & 0xFFFFFFFF
+    k ^= int.from_bytes(params["constant"], "big")
+    k = ((k << 14) | (k >> 17)) & 0xFFFFFFFF
+    return k.to_bytes(4, "big")
+
+
 # 算法注册表：计算函数 + 固有 (seed_len, key_len) + params 键 → hex 字节数
 # （mask_table 特殊：16 项 u32 列表；optional_params 可省略）
 ALGORITHMS: dict[str, dict] = {
@@ -144,6 +160,8 @@ ALGORITHMS: dict[str, dict] = {
                       "params": {"mask_table": 16}},
     "t1lfl1_crc16": {"key": _key_t1lfl1_crc16, "seed_len": 2, "key_len": 2,
                      "params": {}},
+    "gac_shift_xor": {"key": _key_gac_shift_xor, "seed_len": 4, "key_len": 4,
+                      "params": {"constant": 4}},
 }
 
 

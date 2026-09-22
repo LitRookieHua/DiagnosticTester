@@ -60,6 +60,24 @@ V2XEU_SECURITY = {
             "params": {"key": "B6042A5FFBFAED83539F4C42D44CFFDF"}},
 }
 
+# GAC T75 app/boot 向量：按 cpj_gac ov_dia_0x27_security_access.cpp
+# 的 computeKey 逐行转写计算（常量 app=0x7AFC5EC0 boot=0x3ADC6B07）
+V_GAC_APP = [(0x00000000, 0x17B03D7E), (0x00000001, 0x17B03DBE),
+             (0x12345678, 0xB0F0E765), (0xAABBCCDD, 0x1B691B7E),
+             (0xFFFFFFFF, 0xE84EC281), (0x89ABCDEF, 0x57694E30)]
+V_GAC_BOOT = [(0x00000000, 0x1AC1DD6E), (0x00000001, 0x1AC1DDAE),
+              (0x12345678, 0xBD814775), (0xAABBCCDD, 0x1618FB6E),
+              (0xFFFFFFFF, 0xE53F6291), (0x89ABCDEF, 0x5A18EE20)]
+
+# T75 项目 security 节（与 configs/t75/t75.yaml 一致；
+# develop 为内置 61/62，Security Level 0x31 只是等级标识）
+T75_SECURITY = {
+    "app": {"seed_sub": 0x01, "key_sub": 0x02, "algorithm": "gac_shift_xor",
+            "params": {"constant": "7AFC5EC0"}},
+    "boot": {"seed_sub": 0x11, "key_sub": 0x12, "algorithm": "gac_shift_xor",
+             "params": {"constant": "3ADC6B07"}},
+}
+
 
 @pytest.fixture
 def n60():
@@ -196,6 +214,20 @@ def test_aes_cmac_seed_magic_optional():
                                                "magic": "22" * 15}}})
 
 
+def test_gac_shift_xor_vectors():
+    t75 = levels_from_config(T75_SECURITY)
+    app, boot = t75["app"], t75["boot"]
+    assert app.seed_len == 4 and app.key_len == 4
+    assert app.seed_request() == bytes.fromhex("2701")
+    assert boot.seed_request() == bytes.fromhex("2711")
+    for seed, key in V_GAC_APP:
+        assert app.compute_key(seed.to_bytes(4, "big")) \
+            == key.to_bytes(4, "big"), f"seed={seed:08X}"
+    for seed, key in V_GAC_BOOT:
+        assert boot.compute_key(seed.to_bytes(4, "big")) \
+            == key.to_bytes(4, "big"), f"seed={seed:08X}"
+
+
 def test_seed_request_forms(n60):
     assert n60["app"].seed_request() == bytes.fromhex("2701")
     assert n60["boot"].seed_request() == bytes.fromhex("2711")
@@ -276,6 +308,15 @@ def test_perform_unlock_t1lfl1_success():
     assert seed_out == bytes.fromhex("1234")
     assert key == bytes.fromhex("017A")
     assert result.response == bytes.fromhex("6704")
+
+
+def test_perform_unlock_gac_shift_success():
+    app = levels_from_config(T75_SECURITY)["app"]
+    uds = UdsClient(SecFake(app, (0x12345678).to_bytes(4, "big")))
+    seed_out, key, result = perform_unlock(uds, app)
+    assert seed_out == (0x12345678).to_bytes(4, "big")
+    assert key == bytes.fromhex("B0F0E765")
+    assert result.response == bytes.fromhex("6702")
 
 
 def test_perform_unlock_wrong_key_fails(n60):
