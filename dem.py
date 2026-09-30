@@ -230,8 +230,21 @@ def _dem_bitmap(uds, maps, emit, did_key: str, table_key: str,
 
 
 def run_dem(uds, maps, emit) -> int:
-    """执行五项故障拉取，逐行 emit 报告；返回退出码（全正响应 0，否则 1）。"""
+    """执行五项故障拉取，逐行 emit 报告；返回退出码（全正响应 0，否则 1）。
+
+    先进扩展会话（10 03）：部分 ECU 默认会话下不响应 19/22（实测 t1lfl1
+    上电初期即出现），失败不阻断，继续按项读取。
+    """
     emit("===== DEM 故障报告 =====")
+    emit("[会话] 进扩展会话（10 03）")
+    emit("UDS TX: 10 03")
+    r = uds.request(bytes.fromhex("1003"))
+    if r.timeout:
+        emit("UDS RX: (timeout)")
+    else:
+        emit(f"UDS RX: {_hex(r.response)}")
+    if r.timeout or r.nrc is not None:
+        emit("进扩展会话失败，按默认会话继续读取")
     ok = _dem_dtc(uds, maps, emit)
     for did_key, title in [("event_current", "当前 event"),
                            ("event_cycle", "本周期 event"),

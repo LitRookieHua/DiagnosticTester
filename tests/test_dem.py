@@ -24,6 +24,8 @@ def _maps():
 
 def _ok_uds() -> FakeUds:
     return FakeUds({
+        bytes.fromhex("1003"): UdsResult(
+            response=bytes.fromhex("50030032")),
         bytes.fromhex("19020F"): UdsResult(
             response=bytes.fromhex("5902FFEA07882F")),
         bytes.fromhex("222A0D"): UdsResult(

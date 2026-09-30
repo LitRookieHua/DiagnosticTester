@@ -66,11 +66,12 @@ def run_cli(tmp_path, monkeypatch):
     monkeypatch.setattr(diag, "LOGS_DIR", tmp_path)
 
     def runner(argv, ecu=None, cfg_text=CONFIG, tc_text=TESTCASE,
-               cfg_name="cfg.yaml"):
+               cfg_name="cfg.yaml", tc_name="tc.yaml"):
         cfg_path = tmp_path / cfg_name
         cfg_path.parent.mkdir(parents=True, exist_ok=True)
         cfg_path.write_text(cfg_text, encoding="utf-8")
-        tc_path = tmp_path / "tc.yaml"
+        tc_path = tmp_path / tc_name
+        tc_path.parent.mkdir(parents=True, exist_ok=True)
         tc_path.write_text(tc_text, encoding="utf-8")
         if ecu is not None:
             monkeypatch.setattr(diag, "make_driver", lambda cfg: ecu)
@@ -100,20 +101,14 @@ def test_run_smoke(run_cli):
     assert "PASS 1 / FAIL 0 / TIMEOUT 0 / 共 1/1" in out
 
 
-def test_run_log_dir_uses_project_and_testcase_stem(run_cli, tmp_path):
-    # 日志目录前缀 = 项目名（config 子目录）_ testcase 文件名
+def test_run_log_dir_beside_testcase_yaml(run_cli, tmp_path):
+    # run 的日志目录 = 用例 yaml 同目录下的时间戳子目录
     mock = MockCanDriver()
-    run_cli(["run", "tc"], ecu=mock, cfg_name="n60/n60.yaml")
-    assert any(p.is_dir() and p.name.startswith("n60_tc_")
-               for p in tmp_path.iterdir())
-
-
-def test_run_log_dir_configs_root_uses_config_stem(run_cli, tmp_path):
-    # 配置直接放在 configs/ 根下时项目名取配置文件名
-    mock = MockCanDriver()
-    run_cli(["run", "tc"], ecu=mock, cfg_name="configs/cfg.yaml")
-    assert any(p.is_dir() and p.name.startswith("cfg_tc_")
-               for p in tmp_path.iterdir())
+    run_cli(["run", "tc"], ecu=mock, cfg_name="n60/n60.yaml",
+            tc_name="t1lfl1/dem_read/dem_read.yaml")
+    case_dir = tmp_path / "t1lfl1" / "dem_read"
+    assert any(p.is_dir() and p != case_dir for p in case_dir.iterdir()), \
+        "用例文件夹下未生成时间戳运行目录"
 
 
 def test_probe_log_dir_uses_project(run_cli, tmp_path):
@@ -205,6 +200,7 @@ def test_chat_unlock_bad_level_continues(run_cli, monkeypatch):
 # ---------- dem ----------
 
 DEM_RESP = {
+    "1003": "50030032",
     "19020F": "5902FFEA07882F",
     "222A0D": "622A0D21",
     "222A0E": "622A0E00",
@@ -242,10 +238,26 @@ def test_dem_report(run_cli, tmp_path):
 
 
 def test_dem_all_timeout_exit_1(run_cli):
-    mock = MockCanDriver()  # 不回帧
+    mock = MockCanDriver()  # 不回帧（含 1003），会话 + 五项全超时
     code, out = run_cli(["dem"], ecu=mock)
     assert code == 1
-    assert out.count("UDS RX: (timeout)") == 5
+    assert out.count("UDS RX: (timeout)") == 6
+    assert "进扩展会话失败" in out
+
+def test_dem_enters_extended_session_first(run_cli, tmp_path):
+    # dem 先发 10 03 进扩展会话，且会话失败不阻断后续读取
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "dtc_map.yaml").write_text(
+        "0xEA0788: DemDTC_U2A0788_CAN_ACAN_Busoff\n", encoding="utf-8")
+    mock = MockCanDriver()
+    mock.on_send = _dem_ecu(mock)
+    code, out = run_cli(["dem"], ecu=mock, cfg_name="configs/cfg.yaml")
+    assert code == 0
+    assert "[DTC 故障]" in out  # 1003 成功后照常五项
+    log_dirs = [p for p in tmp_path.iterdir()
+                if p.is_dir() and p.name.startswith("cfg_dem_")]
+    log_text = (log_dirs[0] / "run.log").read_text(encoding="utf-8")
+    assert "UDS TX: 10 03" in log_text
 
 
 def test_dem_bad_map_exit_2(run_cli, tmp_path, capsys):

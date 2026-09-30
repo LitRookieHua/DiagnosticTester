@@ -6,11 +6,11 @@
 ## 快速上手
 
     python -m pip install -r requirements.txt
-    python diag.py run testcase/example.yaml --config configs/example.yaml
+    python diag.py run testcase/example/example.yaml --config configs/example.yaml
 
 前提：ZLGCAN SDK 已按 `vendor/zlgcan/README.md` 组装、CAN 卡已插、
 目标 ECU 已上电；testcase/ 不入仓库，首次使用需自备用例文件。免硬件体验可先跑
-`python diag.py run testcase/example_mock.yaml --config configs/example_mock.yaml`。
+`python diag.py run testcase/example_mock/example_mock.yaml --config configs/example_mock.yaml`。
 
 ## 目录结构
 
@@ -25,8 +25,10 @@
       event_map.yaml / fimfid_map.yaml / dem_dids.yaml   # 同上，均可选
                                 # 示例见 configs/ 根
     testcase/                  # 测试用例（本地维护，不入仓库；目录与 configs 对应）
-      <项目>/<流程>.yaml       # steps / on_fail / 可选 timing 覆盖
-    logs/                      # 每次运行的 run.log / result.csv / trace.blf（不入仓库）
+      <项目>/<用例>/          # 每个用例一个文件夹，yaml 与运行日志同住
+        <用例>.yaml           # steps / on_fail / 可选 timing 覆盖
+        <时间戳>/             # 每次运行自动生成（run 命令的日志，见「输出文件」）
+    logs/                      # chat/probe/unlock/dem 的运行日志（不入仓库）
 
 同一测试用例换 `--config` 即可跑不同项目。
 
@@ -34,7 +36,7 @@
 
 | 命令 | 用途 | 示例 |
 | --- | --- | --- |
-| `run` | 跑测试用例 | `python diag.py run testcase/n60/x.yaml --config configs/n60/n60.yaml` |
+| `run` | 跑测试用例 | `python diag.py run testcase/n60/x/x.yaml --config configs/n60/n60.yaml` |
 | `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/n60/n60.yaml` |
 | `probe` | 单发一条请求 | `python diag.py probe --config configs/n60/n60.yaml 22F195` |
 | `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/n60/n60.yaml app` |
@@ -104,14 +106,15 @@ security:
 
 ## run — 跑测试用例
 
-    python diag.py run testcase/n60/x.yaml --config configs/n60/n60.yaml
+    python diag.py run testcase/n60/x/x.yaml --config configs/n60/n60.yaml
 
 输出汇总与退出码：
 
     PASS 3 / FAIL 0 / TIMEOUT 0 / 共 3/3     # 退出码 0
     PASS 1 / FAIL 1 / TIMEOUT 0 / 共 2/3     # 有 FAIL/TIMEOUT，退出码 1
 
-结果同时落盘到 `logs/<项目>_<用例名>_<时间戳>/`（见「输出文件」）。
+结果同时落盘到用例 yaml 同目录下的时间戳子目录
+`testcase/<项目>/<用例>/<时间戳>/`（见「输出文件」）。
 
 ## chat — 交互模式
 
@@ -152,9 +155,13 @@ security:
 
 ## 输出文件
 
-每次运行生成 `logs/<项目>_<前缀>_<时间戳>/`（前缀：run 为用例名，
-chat/probe/unlock/dem 为命令名；项目名取配置的子目录，如
-`configs/n60/n60.yaml` → n60，configs 根下的配置取文件名）：
+- **run**：日志生成在用例 yaml 同目录下 →
+  `testcase/<项目>/<用例>/<时间戳>/`
+- **chat / probe / unlock / dem**：日志生成在 `logs/` 下 →
+  `logs/<项目>_<命令名>_<时间戳>/`（项目名取配置的子目录，如
+  `configs/n60/n60.yaml` → n60，configs 根下的配置取文件名）
+
+目录内容相同：
 
 - `run.log`  人读文本流水（步骤、判定、NRC、0x78 事件、解锁种子/密钥）
 - `result.csv`  UDS 级结果表（seq/步骤/请求/响应/NRC/判定/耗时/时间戳）
