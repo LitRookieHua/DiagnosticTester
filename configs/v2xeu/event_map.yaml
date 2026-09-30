@@ -1794,7 +1794,7 @@
 1794: DemEvent_EV_SRR_R_L_OperationMode_External_Can03_INVALID
 1795: DemEvent_EV_SRR_R_R_OperationMode_External_Can03_INVALID
 1796: DemEvent_EV_LRR_F_L_OperationMode_External_Can03_INVALID
-1797: DemEvent_CPJ_Net_Reserved_1
+1797: DemEvent_EV_CANA_YRS_0x19b_LatAcce_OverRange
 1798: DemEvent_CPJ_Net_Reserved_2
 1799: DemEvent_CPJ_Net_Reserved_3
 1800: DemEvent_CPJ_Net_Reserved_4
