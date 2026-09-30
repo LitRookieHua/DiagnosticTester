@@ -268,6 +268,67 @@ def test_dem_bad_map_exit_2(run_cli, tmp_path, capsys):
     assert "dtc_map" in capsys.readouterr().err
 
 
+# ---------- dem-map（手动粘贴离线解析，不触硬件） ----------
+
+def _feed_inputs(monkeypatch, lines):
+    inputs = iter(lines)
+
+    def fake_input(prompt=""):
+        try:
+            return next(inputs)
+        except StopIteration:
+            raise EOFError
+
+    import builtins
+    monkeypatch.setattr(builtins, "input", fake_input)
+
+
+def _write_maps(tmp_path):
+    (tmp_path / "configs").mkdir(exist_ok=True)
+    (tmp_path / "configs" / "dtc_map.yaml").write_text(
+        "0xEA0788: DemDTC_U2A0788_CAN_ACAN_Busoff\n", encoding="utf-8")
+    (tmp_path / "configs" / "event_map.yaml").write_text(
+        "1: DemEvent_HCTDTC_1\n", encoding="utf-8")
+    (tmp_path / "configs" / "fimfid_map.yaml").write_text(
+        "2: FiM_Function_Xxx\n", encoding="utf-8")
+
+
+def test_dem_map_decodes_all_items(run_cli, tmp_path, monkeypatch):
+    _write_maps(tmp_path)
+    # 五项依次：DTC 整段响应 / 当前 event 整段响应 / 本周期裸 payload /
+    # 历史 event 回车跳过 / fimfid 裸 payload
+    _feed_inputs(monkeypatch, [
+        "5902FFEA07882F", "622A0D21", "21", "", "02"])
+    code, out = run_cli(["dem-map"], cfg_name="configs/cfg.yaml")
+    assert code == 0
+    assert "[DTCStatus(190209)]" in out
+    assert "EA0788  DemDTC_U2A0788_CAN_ACAN_Busoff  0x2F" in out
+    assert "[CurrentEventStatus(222A0D)]" in out
+    assert "1: DemEvent_HCTDTC_1" in out
+    assert "6:（未在 event_map 中）" in out
+    assert "[HistoryEventStatus(222A0F)]" in out
+    assert "（跳过）" in out
+    assert "[FiMFIDStatus(222A1D)]" in out
+    assert "2: FiM_Function_Xxx" in out
+
+
+def test_dem_map_bad_hex_exit_1(run_cli, tmp_path, monkeypatch):
+    _write_maps(tmp_path)
+    _feed_inputs(monkeypatch, ["ZZ", "", "", "", ""])
+    code, out = run_cli(["dem-map"], cfg_name="configs/cfg.yaml")
+    assert code == 1
+    assert "输入错误" in out
+
+
+def test_dem_map_dtc_parse_failure_exit_1(run_cli, tmp_path, monkeypatch):
+    _write_maps(tmp_path)
+    # 不是 59 02 正响应 → 解析失败，退出码 1
+    _feed_inputs(monkeypatch, ["1234", "", "", "", ""])
+    code, out = run_cli(["dem-map"], cfg_name="configs/cfg.yaml")
+    assert code == 1
+    assert "解析失败" in out
+
+
 def test_dem_report_written_to_run_log(run_cli, tmp_path):
     # 配置放 configs/ 根 → 项目名取文件名 "cfg"，日志前缀 cfg_dem_
     (tmp_path / "configs").mkdir()

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from flow import ConfigError
+from flow import ConfigError, parse_hex_bytes
 
 DEFAULT_DIDS = {
     "event_current": 0x2A0D,
@@ -185,6 +185,27 @@ def _request(uds, emit, request: bytes, title: str):
     return r
 
 
+def _emit_dtc_records(records, maps, emit):
+    if not records:
+        emit("  无故障记录")
+    for dtc, status in records:
+        name = maps["dtc_map"].get(dtc, "（未在 dtc_map 中）")
+        bits = "|".join(decode_status(status))
+        emit(f"  {dtc:06X}  {name}  0x{status:02X}  {bits}")
+
+
+def _emit_bitmap_nums(payload, maps, table_key, emit, empty_label):
+    nums = parse_bitmap(payload)
+    if not nums:
+        emit(f"  {empty_label}")
+    for n in nums:
+        name = maps[table_key].get(n)
+        if name is None:
+            emit(f"  {n}:（未在 {table_key} 中）")
+        else:
+            emit(f"  {n}: {name}")
+
+
 def _dem_dtc(uds, maps, emit) -> bool:
     r = _request(uds, emit, bytes.fromhex("19020F"), "DTC 故障")
     if r is None:
@@ -194,12 +215,7 @@ def _dem_dtc(uds, maps, emit) -> bool:
     except ValueError as e:
         emit(f"  解析失败：{e}")
         return False
-    if not records:
-        emit("  无故障记录")
-    for dtc, status in records:
-        name = maps["dtc_map"].get(dtc, "（未在 dtc_map 中）")
-        bits = "|".join(decode_status(status))
-        emit(f"  {dtc:06X}  {name}  0x{status:02X}  {bits}")
+    _emit_dtc_records(records, maps, emit)
     return True
 
 
@@ -217,15 +233,7 @@ def _dem_bitmap(uds, maps, emit, did_key: str, table_key: str,
     if not payload:
         emit("  (空位图)")
         return False
-    nums = parse_bitmap(payload)
-    if not nums:
-        emit(f"  {empty_label}")
-    for n in nums:
-        name = maps[table_key].get(n)
-        if name is None:
-            emit(f"  {n}:（未在 {table_key} 中）")
-        else:
-            emit(f"  {n}: {name}")
+    _emit_bitmap_nums(payload, maps, table_key, emit, empty_label)
     return True
 
 
@@ -257,5 +265,75 @@ def run_dem(uds, maps, emit) -> int:
     if not _dem_bitmap(uds, maps, emit, "fimfid_current", "fimfid_map",
                        "当前 fimfid", "（无置位 fimfid）"):
         ok = False
+    emit("=====================")
+    return 0 if ok else 1
+
+
+# 手动 map 模式的五项：标签按现场工单口径，DID 与 dem_dids.yaml 可覆盖保持一致
+_MANUAL_ITEMS = [
+    ("DTCStatus(190209)", "dtc", None, None, None),
+    ("CurrentEventStatus(222A0D)", "bitmap", "event_current", "event_map",
+     "（无置位 event）"),
+    ("CurrentCycleEventStatus(222A0E)", "bitmap", "event_cycle", "event_map",
+     "（无置位 event）"),
+    ("HistoryEventStatus(222A0F)", "bitmap", "event_history", "event_map",
+     "（无置位 event）"),
+    ("FiMFIDStatus(222A1D)", "bitmap", "fimfid_current", "fimfid_map",
+     "（无置位 fimfid）"),
+]
+
+
+def _manual_input(label: str) -> str:
+    try:
+        return input(f"{label}: 待用户输入(直接回车即为空，直接跳过)").strip()
+    except EOFError:
+        return ""
+
+
+def _manual_bitmap_payload(data: bytes, did: int) -> bytes:
+    """整段 62 <DID> <payload> 响应去掉响应头；裸 payload（无 62 头）原样返回。"""
+    if len(data) >= 3 and data[0] == 0x62 and data[1] == did >> 8 \
+            and data[2] == did & 0xFF:
+        return data[3:]
+    return data
+
+
+def run_dem_manual(maps, emit) -> int:
+    """手动粘贴五项原始响应做离线 map 解析（不连 ECU）。
+
+    每项提示输入完整 UDS 正响应 hex（可含空格）；直接回车跳过该节。
+    返回退出码：所有已输入项解析成功（或跳过）为 0，任一输入非法/解析失败为 1。
+    """
+    emit("===== DEM 手动解析 =====")
+    ok = True
+    for label, kind, did_key, table_key, empty_label in _MANUAL_ITEMS:
+        line = _manual_input(label)
+        emit("")
+        emit(f"[{label}]")
+        if not line:
+            emit("  （跳过）")
+            continue
+        try:
+            data = parse_hex_bytes(line, label)
+        except ConfigError as e:
+            emit(f"  输入错误：{e}")
+            ok = False
+            continue
+        emit(f"  输入: {_hex(data)}")
+        if kind == "dtc":
+            try:
+                _mask, records = parse_1902(data)
+            except ValueError as e:
+                emit(f"  解析失败：{e}")
+                ok = False
+                continue
+            _emit_dtc_records(records, maps, emit)
+        else:
+            did = maps["dids"][did_key]
+            payload = _manual_bitmap_payload(data, did)
+            if not payload:
+                emit("  (空位图)")
+                continue
+            _emit_bitmap_nums(payload, maps, table_key, emit, empty_label)
     emit("=====================")
     return 0 if ok else 1

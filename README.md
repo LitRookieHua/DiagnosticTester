@@ -41,6 +41,7 @@
 | `probe` | 单发一条请求 | `python diag.py probe --config configs/n60/n60.yaml 22F195` |
 | `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/n60/n60.yaml app` |
 | `dem` | 故障检测报告（DTC/event/fimfid） | `python diag.py dem --config configs/rx/rx.yaml` |
+| `dem-map` | 手动粘贴响应离线解析 DEM map（不连 ECU） | `python diag.py dem-map --config configs/rx/rx.yaml` |
 
 ## 配置文件（configs/）
 
@@ -152,6 +153,28 @@ security:
 
 退出码与 `probe` 一致：0 成功、1 超时无响应、2 负响应或未知等级
 （含 NRC 0x35 密钥错误）。
+
+## dem-map — 手动粘贴响应离线解析
+
+    python diag.py dem-map --config configs/t1lfl1/t1lfl1.yaml
+
+不连 ECU、不需要 CAN 卡：逐项提示粘贴原始正响应 hex（可含空格），
+用 `--config` 同目录的 dtc_map/event_map/fimfid_map 解码显示。
+直接回车跳过该项。
+
+    DTCStatus(190209): 待用户输入(直接回车即为空，直接跳过)
+    CurrentEventStatus(222A0D): 待用户输入(直接回车即为空，直接跳过)
+    CurrentCycleEventStatus(222A0E): 待用户输入(直接回车即为空，直接跳过)
+    HistoryEventStatus(222A0F): 待用户输入(直接回车即为空，直接跳过)
+    FiMFIDStatus(222A1D): 待用户输入(直接回车即为空，直接跳过)
+
+- DTC 项须粘贴完整 `59 02 <掩码> <DTC×3B><status×1B>…` 响应
+- event/fimfid 项粘贴完整 `62 <DID> <payload>` 响应或裸 payload 均可
+- 输入非法或解析失败该节报错，其余节照常；退出码 0 正常、1 有失败项、
+  2 配置/map 校验错误
+
+适用场景：现场只有 CANoe 抓的原始响应、或 dem 报告里的 `UDS RX:` 行
+需要复核 event/DTC 名称时。
 
 ## 输出文件
 

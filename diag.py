@@ -6,6 +6,7 @@
   python diag.py probe --config <config.yaml> 22F195          单发一条请求
   python diag.py unlock --config <config.yaml> app             0x27 安全解锁
   python diag.py dem --config <config.yaml>                    故障检测报告（DTC/event/fimfid）
+  python diag.py dem-map --config <config.yaml>                手动粘贴响应离线解析 DEM map
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from dem import load_maps, run_dem
+from dem import load_maps, run_dem, run_dem_manual
 from flow import ConfigError, load_config, load_testcase, parse_hex_bytes, run_flow
 from isotp import IsoTpError, IsoTpTransport
 from recorder import Recorder
@@ -171,6 +172,13 @@ def cmd_dem(args):
         return run_dem(uds, maps, emit)
 
 
+def cmd_dem_map(args):
+    # 离线手动解析：不触硬件，--config 只用于定位并校验 map 目录
+    load_config(args.config)
+    maps = load_maps(Path(args.config).parent)
+    return run_dem_manual(maps, print)
+
+
 def cmd_chat(args):
     cfg = load_config(args.config)
     levels = cfg["security_levels"]
@@ -258,6 +266,10 @@ def main(argv=None):
     p_dem = sub.add_parser("dem", help="拉取 DTC/event/fimfid 故障报告")
     p_dem.add_argument("--config", required=True)
     p_dem.set_defaults(func=cmd_dem)
+
+    p_demmap = sub.add_parser("dem-map", help="手动粘贴响应离线解析 DEM map（不连 ECU）")
+    p_demmap.add_argument("--config", required=True)
+    p_demmap.set_defaults(func=cmd_dem_map)
 
     args = parser.parse_args(argv)
     try:
