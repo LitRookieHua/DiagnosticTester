@@ -70,6 +70,20 @@ def import_zlgcan():
         raise
 
 
+def import_cxcanfd():
+    # 创芯无官方 Python 包，绑定只由 vendor 目录提供（与 zlgcan 的 pip 回退不同）
+    vendor = Path(__file__).resolve().parent / "vendor" / "cxcanfd"
+    if not (vendor / "cxcanfd.py").exists():
+        raise RuntimeError("vendor/cxcanfd 未组装：见 vendor/cxcanfd/README.md")
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    os.environ["PATH"] = str(vendor) + os.pathsep + os.environ.get("PATH", "")
+    if hasattr(os, "add_dll_directory"):
+        os.add_dll_directory(str(vendor))
+    import cxcanfd
+    return cxcanfd
+
+
 class ZlgCanDriver(CanDriver):
     _DEV_TYPE_CONSTS = {"USBCANFD-100U": ("ZCAN_USBCANFD_100U", 42),
                         "USBCANFD-200U": ("ZCAN_USBCANFD_200U", 41),
