@@ -1,6 +1,6 @@
 # 诊断测试工具（diag）
 
-周立功 USBCANFD-200U 上的 UDS 诊断测试工具。经典 CAN / CAN FD 均支持，
+周立功 / 创芯 USB-CANFD 卡上的 UDS 诊断测试工具。经典 CAN / CAN FD 均支持，
 按 YAML 测试用例收发诊断数据，文本/CSV/BLF 三路落盘，支持 0x27 安全解锁。
 
 ## 快速上手
@@ -11,6 +11,12 @@
 前提：ZLGCAN SDK 已按 `vendor/zlgcan/README.md` 组装、CAN 卡已插、
 目标 ECU 已上电；testcase/ 不入仓库，首次使用需自备用例文件。免硬件体验可先跑
 `python diag.py run testcase/example_mock/example_mock.yaml --config configs/example_mock.yaml`。
+
+### 创芯卡（CX-USBCANFD）
+
+配置 `can.device: CX-USBCANFD` 即用创芯双通道卡：DLL 已随仓库内置
+（`vendor/cxcanfd/`，64 位，Python 须 64 位），无需另外组装 SDK。
+终端电阻无软件开关，请确认卡上拨码/跳线或外接电阻。
 
 ## 目录结构
 
@@ -47,8 +53,9 @@
 
 每个项目一份，共四节：
 
-- **can** — 总线接入：`device`（周立功设备名，`mock` 走内置 Mock 驱动、
-  免硬件）、`channel` 通道号、`fd` 是否 CAN FD、`baudrate` 仲裁域波特率；
+- **can** — 总线接入：`device`（周立功设备名 `USBCANFD-100U/200U/800U`、
+  创芯 `CX-USBCANFD`，`mock` 走内置 Mock 驱动、免硬件）、`channel` 通道号、
+  `fd` 是否 CAN FD、`baudrate` 仲裁域波特率；
   `data_baudrate` 为 FD 数据域波特率（可省略，默认 2000000）。
 - **diagnostic** — 诊断寻址：`request_id` 请求 ID、`response_id` 响应 ID、
   `functional_id` 功能寻址 ID（可选，功能寻址步骤必需）。三个 ID 均限
@@ -202,8 +209,8 @@ security:
 
 ## 常见问题
 
-- **`打开 USBCANFD-200U#0 失败`** — 检查 USB 连接与设备索引；确认没有
-  其他程序（zcanpro 等）占用设备。
+- **`打开 USBCANFD-200U#0 失败` / `打开 CX-USBCANFD#0 失败`** — 检查 USB 连接
+  与设备索引；确认没有其他程序（zcanpro、创芯官方 demo 等）占用设备。
 - **`CAN FD 发送失败`** — 多为物理层问题：ECU 掉电、CAN 线未接。ECU
   上电有启动时间，重试前等几秒。
 - **`错误：配置错误 ...`** — YAML 有未知字段或缺字段；错误信息会指明
