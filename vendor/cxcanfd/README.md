@@ -1,7 +1,10 @@
 # 创芯 ControlCANFD SDK 放置目录
 
 来源：创芯科技官方 python 示例包 `python(x64)_example_python3.8.8_v2.0`
-（本仓库 `spec/` 下有备份）。
+（随 CAN 卡提供，无公开下载渠道）。
+
+与 vendor/zlgcan 不同，本目录 DLL **随仓库内置**：创芯 SDK 无公开下载
+门户，克隆即用、无需手动组装。
 
 | 文件 | 说明 |
 | --- | --- |

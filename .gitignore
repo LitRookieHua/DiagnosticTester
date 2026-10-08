@@ -3,5 +3,7 @@ __pycache__/
 logs/
 vendor/zlgcan/*
 !vendor/zlgcan/README.md
+# vendor/cxcanfd 的 DLL 随仓库内置（创芯 SDK 无公开下载渠道，与 zlgcan 手动组装策略不同）
+spec/
 zlg/
 testcase/
