@@ -299,6 +299,8 @@ def test_recv_negative_receive_ret_no_phantom_frame(fake_cx):
         fake_cx.rcv_ret = -1
         fake_cx.fd_frames.append({"id": 0x78C, "len": 8, "brs": 0,
                                   "data": b"\x06" * 8})
+        fake_cx.fd_frames.append({"id": 0x78D, "len": 8, "brs": 0,
+                                  "data": b"\x07" * 8})
         f = d.recv(timeout_s=0.3)
         assert f is None  # 负返回值不产生幻影帧
     finally:
