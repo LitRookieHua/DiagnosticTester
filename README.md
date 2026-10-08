@@ -21,12 +21,12 @@
 ## 目录结构
 
     configs/                    # 项目配置（每个项目一个同名目录，目录名 = 配置文件名）
-      n60/n60_zlg.yaml         # can / diagnostic / timing / security（_zlg/_cx 后缀区分卡型）
-      n60/n60_cx.yaml
-      rx/rx.yaml
-      t1lfl1/t1lfl1.yaml
-      v2xeu/v2xeu.yaml
-      t75/t75.yaml
+      n60/n60_zlg.yaml         # can / diagnostic / timing / security，
+      n60/n60_cx.yaml          # _zlg=周立功卡 / _cx=创芯卡（其余项目同理）
+      rx/rx_zlg.yaml / rx/rx_cx.yaml
+      t1lfl1/t1lfl1_zlg.yaml / t1lfl1/t1lfl1_cx.yaml
+      v2xeu/v2xeu_zlg.yaml / v2xeu/v2xeu_cx.yaml
+      t75/t75_zlg.yaml / t75/t75_cx.yaml
       example.yaml / example_mock.yaml / example_cx.yaml
       <项目>/dtc_map.yaml      # 可选：DTC → 名称（dem 子命令用）
       event_map.yaml / fimfid_map.yaml / dem_dids.yaml   # 同上，均可选
@@ -47,8 +47,8 @@
 | `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/n60/n60_zlg.yaml` |
 | `probe` | 单发一条请求 | `python diag.py probe --config configs/n60/n60_zlg.yaml 22F195` |
 | `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/n60/n60_zlg.yaml app` |
-| `dem` | 故障检测报告（DTC/event/fimfid） | `python diag.py dem --config configs/rx/rx.yaml` |
-| `dem-map` | 手动粘贴响应离线解析 DEM map（不连 ECU） | `python diag.py dem-map --config configs/rx/rx.yaml` |
+| `dem` | 故障检测报告（DTC/event/fimfid） | `python diag.py dem --config configs/rx/rx_zlg.yaml` |
+| `dem-map` | 手动粘贴响应离线解析 DEM map（不连 ECU） | `python diag.py dem-map --config configs/rx/rx_zlg.yaml` |
 
 ## 配置文件（configs/）
 
@@ -164,7 +164,7 @@ security:
 
 ## dem-map — 手动粘贴响应离线解析
 
-    python diag.py dem-map --config configs/t1lfl1/t1lfl1.yaml
+    python diag.py dem-map --config configs/t1lfl1/t1lfl1_zlg.yaml
 
 不连 ECU、不需要 CAN 卡：逐项提示粘贴原始正响应 hex（可含空格），
 用 `--config` 同目录的 dtc_map/event_map/fimfid_map 解码显示。

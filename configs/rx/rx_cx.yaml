@@ -1,0 +1,37 @@
+can:
+  device: CX-USBCANFD
+  channel: 0
+  fd: true
+  baudrate: 500000
+  data_baudrate: 2000000
+
+diagnostic:
+  request_id: 0x712
+  response_id: 0x713
+  functional_id: 0x7DF
+
+timing:
+  # 实测 19 02 0F 的 pending 到达需 ~63ms，P2=50 会与其竞态误判超时
+  p2_ms: 200
+  p2star_ms: 5000
+  step_delay_ms: 100
+
+security:
+  app:
+    seed_sub: 0x01
+    key_sub: 0x02
+    algorithm: cmc_mask_app
+    params:
+      mask_table: [0xf7cbc641, 0xc81dc123, 0xd88eb629, 0x942e16ad,
+                   0x616277ff, 0x8cd16b85, 0x79b09727, 0x7198b307,
+                   0x7dd79183, 0x2f7f1b17, 0x0eb2ff43, 0x6c6b262d,
+                   0x4efe3885, 0xd028eabd, 0x0ae30f11, 0x3eea5c0d]
+  boot:
+    seed_sub: 0x11
+    key_sub: 0x12
+    algorithm: cmc_mask_boot
+    params:
+      mask_table: [0xf7cbc641, 0xc81dc123, 0xd88eb629, 0x942e16ad,
+                   0x616277ff, 0x8cd16b85, 0x79b09727, 0x7198b307,
+                   0x7dd79183, 0x2f7f1b17, 0x0eb2ff43, 0x6c6b262d,
+                   0x4efe3885, 0xd028eabd, 0x0ae30f11, 0x3eea5c0d]

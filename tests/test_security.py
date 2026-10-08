@@ -17,7 +17,7 @@ V_BOOT = dict(seed="0017E474DD2D1474CCF3F372F193AF51",
 V_DEV = dict(seed="833D96C2A22693B43D75C94B92CB0F4F",
              key="2BF8DE6BF27911AE6346F94FB37500F7")
 
-# N60 项目 security 节（与 configs/BAIC_N60/n60.yaml 一致）
+# N60 项目 security 节（与 configs/n60/n60_zlg.yaml 一致）
 N60_SECURITY = {
     "app": {"seed_sub": 0x01, "key_sub": 0x02,
             "algorithm": "aes_cmac_df_token",
@@ -69,7 +69,7 @@ V_GAC_BOOT = [(0x00000000, 0x1AC1DD6E), (0x00000001, 0x1AC1DDAE),
               (0x12345678, 0xBD814775), (0xAABBCCDD, 0x1618FB6E),
               (0xFFFFFFFF, 0xE53F6291), (0x89ABCDEF, 0x5A18EE20)]
 
-# T75 项目 security 节（与 configs/t75/t75.yaml 一致；
+# T75 项目 security 节（与 configs/t75/t75_zlg.yaml 一致；
 # develop 为内置 61/62，Security Level 0x31 只是等级标识）
 T75_SECURITY = {
     "app": {"seed_sub": 0x01, "key_sub": 0x02, "algorithm": "gac_shift_xor",

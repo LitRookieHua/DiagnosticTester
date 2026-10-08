@@ -1,0 +1,26 @@
+can:
+  device: CX-USBCANFD
+  channel: 0
+  fd: true
+  baudrate: 500000
+  data_baudrate: 2000000
+
+diagnostic:
+  request_id: 0x737
+  response_id: 0x7B7
+  functional_id: 0x7DF
+
+timing:
+  p2_ms: 50
+  p2star_ms: 5000
+  step_delay_ms: 100
+
+# 对照 veh_v2xeu ov_dia_0x27_security_access.cpp：app 为 AES-CMAC 直算
+# （0x01/0x02，等级 1，无 magic）；boot 仅存在于 bootloader 上下文，不配置
+security:
+  app:
+    seed_sub: 0x01
+    key_sub: 0x02
+    algorithm: aes_cmac_seed
+    params:
+      key: "B6042A5FFBFAED83539F4C42D44CFFDF"
