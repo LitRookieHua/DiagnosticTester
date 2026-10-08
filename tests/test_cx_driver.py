@@ -331,6 +331,7 @@ def test_make_driver_routes_cx(fake_cx):
         assert isinstance(d, CxCanFdDriver)
         # 通道与波特率已透传到 SetAbitBaud
         assert ("SetAbitBaud", (0x1111, 1, 500000)) in fake_cx.calls
+        assert ("SetDbitBaud", (0x1111, 1, 2000000)) in fake_cx.calls
     finally:
         d.close()
 
@@ -339,5 +340,6 @@ def test_make_driver_unknown_device_raises():
     import diag
     cfg = {"can": {"device": "nope", "channel": 0, "fd": True,
                    "baudrate": 500000}}
-    with pytest.raises(RuntimeError, match="不支持的设备"):
+    with pytest.raises(RuntimeError,
+                       match=r"不支持的设备 nope，可选：mock、.*CX-USBCANFD"):
         diag.make_driver(cfg)
