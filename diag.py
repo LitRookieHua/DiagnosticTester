@@ -29,17 +29,24 @@ LOGS_DIR = TOOLS_DIR / "logs"
 
 def make_driver(cfg):
     can_cfg = cfg["can"]
-    if can_cfg["device"] == "mock":
+    device = can_cfg["device"]
+    if device == "mock":
         tests_dir = str(TOOLS_DIR / "tests")
         if tests_dir not in sys.path:
             sys.path.insert(0, tests_dir)
         from mock_driver import MockCanDriver
         return MockCanDriver()
-    from can_driver import ZlgCanDriver
-    return ZlgCanDriver(device=can_cfg["device"], channel=can_cfg["channel"],
-                        baudrate=can_cfg["baudrate"],
-                        data_baudrate=can_cfg.get("data_baudrate", 2000000),
-                        fd=can_cfg["fd"])
+    from can_driver import CxCanFdDriver, ZlgCanDriver
+    common = dict(channel=can_cfg["channel"], baudrate=can_cfg["baudrate"],
+                  data_baudrate=can_cfg.get("data_baudrate", 2000000),
+                  fd=can_cfg["fd"])
+    if device in ZlgCanDriver._DEV_TYPE_CONSTS:
+        return ZlgCanDriver(device=device, **common)
+    if device in CxCanFdDriver._DEV_TYPE_CONSTS:
+        return CxCanFdDriver(device=device, **common)
+    raise RuntimeError(
+        f"不支持的设备 {device}，可选：mock、"
+        f"{'、'.join((*ZlgCanDriver._DEV_TYPE_CONSTS, *CxCanFdDriver._DEV_TYPE_CONSTS))}")
 
 
 def new_run_dir(base: Path, prefix: str | None = None) -> Path:

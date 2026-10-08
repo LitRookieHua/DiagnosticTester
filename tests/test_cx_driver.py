@@ -317,3 +317,27 @@ def test_recv_negative_getreceivenum_keeps_thread_alive(fake_cx):
         assert d.rx_error is None  # 接收线程未崩
     finally:
         d.close()
+
+
+# ---------- make_driver 路由 ----------
+
+def test_make_driver_routes_cx(fake_cx):
+    import diag
+    from can_driver import CxCanFdDriver
+    cfg = {"can": {"device": "CX-USBCANFD", "channel": 1, "fd": True,
+                   "baudrate": 500000, "data_baudrate": 2000000}}
+    d = diag.make_driver(cfg)
+    try:
+        assert isinstance(d, CxCanFdDriver)
+        # 通道与波特率已透传到 SetAbitBaud
+        assert ("SetAbitBaud", (0x1111, 1, 500000)) in fake_cx.calls
+    finally:
+        d.close()
+
+
+def test_make_driver_unknown_device_raises():
+    import diag
+    cfg = {"can": {"device": "nope", "channel": 0, "fd": True,
+                   "baudrate": 500000}}
+    with pytest.raises(RuntimeError, match="不支持的设备"):
+        diag.make_driver(cfg)
