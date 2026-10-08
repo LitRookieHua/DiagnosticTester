@@ -1,10 +1,11 @@
-"""帧抽象 + 周立功 CAN 卡驱动封装（测试替身见 tests/mock_driver.py）。"""
+"""帧抽象 + CAN 卡驱动封装（周立功/创芯，测试替身见 tests/mock_driver.py）。"""
 from __future__ import annotations
 
 import os
 import queue
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -188,6 +189,129 @@ class ZlgCanDriver(CanDriver):
                     raise RuntimeError("CAN FD 发送失败")
             else:
                 msgs = (zmod.ZCAN_Transmit_Data * 1)()
+                m = msgs[0]
+                f = m.frame
+                f.can_id = frame.can_id
+                f.can_dlc = len(frame.data)
+                m.transmit_type = 0
+                for i, b in enumerate(frame.data):
+                    f.data[i] = b
+                if z.Transmit(self._chn, msgs, 1) != 1:
+                    raise RuntimeError("CAN 发送失败")
+
+    def close(self):
+        self._running.clear()
+        self._rx_thread.join(timeout=2.0)
+        try:
+            self._z.ResetCAN(self._chn)
+            self._z.CloseDevice(self._dev)
+        except Exception:
+            pass
+
+
+class CxCanFdDriver(CanDriver):
+    """创芯双通道 USB-CANFD（ControlCANFD.dll，VCI_USBCAN2=41）。"""
+
+    _DEV_TYPE_CONSTS = {"CX-USBCANFD": ("VCI_USBCAN2", 41)}
+
+    def __init__(self, device="CX-USBCANFD", device_index=0, channel=0,
+                 baudrate=500000, data_baudrate=2000000, fd=True):
+        super().__init__()
+        cx = import_cxcanfd()
+        self._cx = cx
+        self._z = cx.ZCAN()
+        self.channel = channel
+        self.fd = fd
+        self.rx_error = None
+        if device not in self._DEV_TYPE_CONSTS:
+            raise RuntimeError(f"不支持的设备 {device}，可选 {list(self._DEV_TYPE_CONSTS)}")
+        const_name, fallback = self._DEV_TYPE_CONSTS[device]
+        dev_type = getattr(cx, const_name, fallback)
+        self._dev = self._z.OpenDevice(dev_type, device_index, 0)
+        if not self._dev:
+            raise RuntimeError(f"打开 {device}#{device_index} 失败：检查 USB 连接与设备索引")
+        try:
+            # 波特率用专用函数设置（ZLG 走 ZCAN_SetValue 字符串键，创芯没有）
+            if self._z.SetAbitBaud(self._dev, channel, baudrate) != 1:
+                raise RuntimeError(f"设置通道 {channel} 仲裁域波特率 {baudrate} 失败")
+            if self._z.SetDbitBaud(self._dev, channel, data_baudrate) != 1:
+                raise RuntimeError(f"设置通道 {channel} 数据域波特率 {data_baudrate} 失败")
+            if self._z.SetCANFDStandard(self._dev, channel, 0) != 1:  # 0=ISO
+                raise RuntimeError(f"设置通道 {channel} ISO 模式失败")
+            cfg = cx.ZCAN_CHANNEL_INIT_CONFIG()
+            cfg.can_type = cx.TYPE_CANFD
+            cfg.config.canfd.mode = 0  # 0-正常模式 1-只听模式
+            self._chn = self._z.InitCAN(self._dev, channel, cfg)
+            if not self._chn:
+                raise RuntimeError(f"通道 {channel} 初始化失败")
+            if self._z.StartCAN(self._chn) != 1:
+                raise RuntimeError(f"通道 {channel} 启动失败")
+        except Exception:
+            self._z.CloseDevice(self._dev)
+            raise
+        self._running = threading.Event()
+        self._running.set()
+        self._tx_lock = threading.Lock()
+        self._rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
+        self._rx_thread.start()
+
+    def _rx_loop(self):
+        BATCH = 100
+        z, cx = self._z, self._cx
+        try:
+            while self._running.is_set():
+                if self.fd:
+                    # FD 通道上经典帧与 FD 帧分别落在两个接收队列，都要取走
+                    n = z.GetReceiveNum(self._chn, cx.TYPE_CANFD)
+                    if n:
+                        cnt = min(n, BATCH)
+                        msgs = (cx.ZCAN_ReceiveFD_Data * cnt)()
+                        num = z.ReceiveFD(self._chn, msgs, cnt, 0)
+                        for m in msgs[:num]:
+                            f = m.frame
+                            self.rx_queue.put(CanFrame(
+                                f.can_id, bytes(f.data)[:f.len], is_fd=True,
+                                bitrate_switch=bool(f.brs)))
+                n = z.GetReceiveNum(self._chn, cx.TYPE_CAN)
+                if n:
+                    cnt = min(n, BATCH)
+                    msgs = (cx.ZCAN_Receive_Data * cnt)()
+                    num = z.Receive(self._chn, msgs, cnt, 0)
+                    for m in msgs[:num]:
+                        f = m.frame
+                        self.rx_queue.put(CanFrame(
+                            f.can_id, bytes(f.data)[:f.can_dlc], is_fd=False))
+                time.sleep(0.01)  # 官方示例节拍，避免 CPU 空转
+        except Exception as e:
+            self.rx_error = e
+            print(f"CAN 接收线程异常退出：{e}", file=sys.stderr)
+
+    def send(self, frame: CanFrame):
+        if frame.is_fd != self.fd:
+            driver_mode = "CAN FD" if self.fd else "经典 CAN"
+            frame_mode = "CAN FD" if frame.is_fd else "经典 CAN"
+            raise ValueError(f"帧模式不匹配：驱动工作在 {driver_mode} 模式，收到 {frame_mode} 帧")
+        if not frame.is_fd and len(frame.data) > 8:
+            raise ValueError("经典 CAN 帧最长 8 字节")
+        z, cx = self._z, self._cx
+        with self._tx_lock:
+            if frame.is_fd:
+                msgs = (cx.ZCAN_TransmitFD_Data * 1)()
+                m = msgs[0]
+                f = m.frame
+                # 同 ZLG：实测 ECU CanIf 只接受 8 字节 FD 帧，最小补 8、更长按 DLC 阶梯补齐
+                wire_len = max(8, dlc_to_len(len_to_dlc(len(frame.data))))
+                data = frame.data + bytes(wire_len - len(frame.data))
+                f.can_id = frame.can_id
+                f.len = wire_len  # 结构体 len 为字节数（0-64），固件自行转 DLC
+                f.brs = 1 if frame.bitrate_switch else 0
+                m.transmit_type = 0
+                for i, b in enumerate(data):
+                    f.data[i] = b
+                if z.TransmitFD(self._chn, msgs, 1) != 1:
+                    raise RuntimeError("CAN FD 发送失败")
+            else:
+                msgs = (cx.ZCAN_Transmit_Data * 1)()
                 m = msgs[0]
                 f = m.frame
                 f.can_id = frame.can_id
