@@ -8,13 +8,13 @@
     python -m pip install -r requirements.txt
     python diag.py run testcase/example/example.yaml --config configs/example.yaml
 
-前提：ZLGCAN SDK 已按 `vendor/zlgcan/README.md` 组装、CAN 卡已插、
+前提：ZLG 卡需 ZLGCAN SDK 按 `vendor/zlgcan/README.md` 组装（创芯卡无需，见下）、CAN 卡已插、
 目标 ECU 已上电；testcase/ 不入仓库，首次使用需自备用例文件。免硬件体验可先跑
 `python diag.py run testcase/example_mock/example_mock.yaml --config configs/example_mock.yaml`。
 
 ### 创芯卡（CX-USBCANFD）
 
-配置 `can.device: CX-USBCANFD` 即用创芯双通道卡：DLL 已随仓库内置
+配置 `can.device: CX-USBCANFD` 即用创芯双通道卡（现成示例 `configs/example_cx.yaml`）：DLL 已随仓库内置
 （`vendor/cxcanfd/`，64 位，Python 须 64 位），无需另外组装 SDK。
 终端电阻无软件开关，请确认卡上拨码/跳线或外接电阻。
 
@@ -26,7 +26,7 @@
       t1lfl1/t1lfl1.yaml
       v2xeu/v2xeu.yaml
       t75/t75.yaml
-      example.yaml / example_mock.yaml
+      example.yaml / example_mock.yaml / example_cx.yaml
       <项目>/dtc_map.yaml      # 可选：DTC → 名称（dem 子命令用）
       event_map.yaml / fimfid_map.yaml / dem_dids.yaml   # 同上，均可选
                                 # 示例见 configs/ 根
