@@ -263,21 +263,21 @@ class CxCanFdDriver(CanDriver):
                 if self.fd:
                     # FD 通道上经典帧与 FD 帧分别落在两个接收队列，都要取走
                     n = z.GetReceiveNum(self._chn, cx.TYPE_CANFD)
-                    if n:
+                    if n > 0:
                         cnt = min(n, BATCH)
                         msgs = (cx.ZCAN_ReceiveFD_Data * cnt)()
                         num = z.ReceiveFD(self._chn, msgs, cnt, 0)
-                        for m in msgs[:num]:
+                        for m in msgs[:max(num, 0)]:
                             f = m.frame
                             self.rx_queue.put(CanFrame(
                                 f.can_id, bytes(f.data)[:f.len], is_fd=True,
                                 bitrate_switch=bool(f.brs)))
                 n = z.GetReceiveNum(self._chn, cx.TYPE_CAN)
-                if n:
+                if n > 0:
                     cnt = min(n, BATCH)
                     msgs = (cx.ZCAN_Receive_Data * cnt)()
                     num = z.Receive(self._chn, msgs, cnt, 0)
-                    for m in msgs[:num]:
+                    for m in msgs[:max(num, 0)]:
                         f = m.frame
                         self.rx_queue.put(CanFrame(
                             f.can_id, bytes(f.data)[:f.can_dlc], is_fd=False))

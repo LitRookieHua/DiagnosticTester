@@ -54,6 +54,8 @@ class FakeZCAN:
         self.fd_frames = []      # GetReceiveNum(TYPE_CANFD) 队列
         self.can_frames = []     # GetReceiveNum(TYPE_CAN) 队列
         self.transmitted = []    # ("fd"/"can", id, len, data[, brs])
+        self.rcv_ret = 1        # Receive/ReceiveFD 返回值（可改负数模拟错误码）
+        self.getnum_ret = None  # GetReceiveNum 覆写（None=按队列长度）
 
     def _rec(self, name, *args):
         self.calls.append((name, args))
@@ -84,6 +86,8 @@ class FakeZCAN:
         return self._rec("ResetCAN", *a)
 
     def GetReceiveNum(self, chn, can_type):
+        if self.getnum_ret is not None:
+            return self.getnum_ret
         return len(self.fd_frames) if can_type == 1 else len(self.can_frames)
 
     def ReceiveFD(self, chn, msgs, n, timeout):
@@ -92,7 +96,7 @@ class FakeZCAN:
         f.can_id, f.len, f.brs = spec["id"], spec["len"], spec.get("brs", 0)
         for i, b in enumerate(spec["data"]):
             f.data[i] = b
-        return 1
+        return self.rcv_ret
 
     def Receive(self, chn, msgs, n, timeout):
         spec = self.can_frames.pop(0)
@@ -100,7 +104,7 @@ class FakeZCAN:
         f.can_id, f.can_dlc = spec["id"], len(spec["data"])
         for i, b in enumerate(spec["data"]):
             f.data[i] = b
-        return 1
+        return self.rcv_ret
 
     def TransmitFD(self, chn, msgs, n):
         for i in range(n):
@@ -284,3 +288,30 @@ def test_close_resets_and_closes(fake_cx):
     d.close()
     names = [c[0] for c in fake_cx.calls]
     assert names[-2:] == ["ResetCAN", "CloseDevice"]
+
+
+# ---------- 接收返回值边界（负数错误码） ----------
+
+def test_recv_negative_receive_ret_no_phantom_frame(fake_cx):
+    from can_driver import CxCanFdDriver
+    d = CxCanFdDriver()
+    try:
+        fake_cx.rcv_ret = -1
+        fake_cx.fd_frames.append({"id": 0x78C, "len": 8, "brs": 0,
+                                  "data": b"\x06" * 8})
+        f = d.recv(timeout_s=0.3)
+        assert f is None  # 负返回值不产生幻影帧
+    finally:
+        d.close()
+
+
+def test_recv_negative_getreceivenum_keeps_thread_alive(fake_cx):
+    from can_driver import CxCanFdDriver
+    d = CxCanFdDriver()
+    try:
+        fake_cx.getnum_ret = -1
+        f = d.recv(timeout_s=0.3)
+        assert f is None
+        assert d.rx_error is None  # 接收线程未崩
+    finally:
+        d.close()
