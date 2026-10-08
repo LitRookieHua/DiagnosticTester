@@ -1,0 +1,30 @@
+can:
+  device: CX-USBCANFD
+  channel: 0
+  fd: true
+  baudrate: 500000
+  data_baudrate: 2000000
+
+diagnostic:
+  request_id: 0x70C
+  response_id: 0x78C
+  functional_id: 0x7DF
+
+timing:
+  p2_ms: 50
+  p2star_ms: 5000
+  step_delay_ms: 100
+
+security:
+  app:
+    seed_sub: 0x01
+    key_sub: 0x02
+    algorithm: aes_cmac_df_token
+    params:
+      key_factor: "5E4741955FEF78D046D754F3CDEF170B"
+  boot:
+    seed_sub: 0x11
+    key_sub: 0x12
+    algorithm: aes_cmac_df_token
+    params:
+      key_factor: "A028E273415E3050B8DEF560364A03BD"

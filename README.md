@@ -21,7 +21,8 @@
 ## 目录结构
 
     configs/                    # 项目配置（每个项目一个同名目录，目录名 = 配置文件名）
-      n60/n60.yaml             # can / diagnostic / timing / security
+      n60/n60_zlg.yaml         # can / diagnostic / timing / security（_zlg/_cx 后缀区分卡型）
+      n60/n60_cx.yaml
       rx/rx.yaml
       t1lfl1/t1lfl1.yaml
       v2xeu/v2xeu.yaml
@@ -42,10 +43,10 @@
 
 | 命令 | 用途 | 示例 |
 | --- | --- | --- |
-| `run` | 跑测试用例 | `python diag.py run testcase/n60/x/x.yaml --config configs/n60/n60.yaml` |
-| `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/n60/n60.yaml` |
-| `probe` | 单发一条请求 | `python diag.py probe --config configs/n60/n60.yaml 22F195` |
-| `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/n60/n60.yaml app` |
+| `run` | 跑测试用例 | `python diag.py run testcase/n60/x/x.yaml --config configs/n60/n60_zlg.yaml` |
+| `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/n60/n60_zlg.yaml` |
+| `probe` | 单发一条请求 | `python diag.py probe --config configs/n60/n60_zlg.yaml 22F195` |
+| `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/n60/n60_zlg.yaml app` |
 | `dem` | 故障检测报告（DTC/event/fimfid） | `python diag.py dem --config configs/rx/rx.yaml` |
 | `dem-map` | 手动粘贴响应离线解析 DEM map（不连 ECU） | `python diag.py dem-map --config configs/rx/rx.yaml` |
 
@@ -114,7 +115,7 @@ security:
 
 ## run — 跑测试用例
 
-    python diag.py run testcase/n60/x/x.yaml --config configs/n60/n60.yaml
+    python diag.py run testcase/n60/x/x.yaml --config configs/n60/n60_zlg.yaml
 
 输出汇总与退出码：
 
@@ -126,7 +127,7 @@ security:
 
 ## chat — 交互模式
 
-    python diag.py chat --config configs/n60/n60.yaml
+    python diag.py chat --config configs/n60/n60_zlg.yaml
 
 逐条输入十六进制请求，即时显示响应与耗时：
 
@@ -144,12 +145,12 @@ security:
 
 ## probe — 单发一条
 
-    python diag.py probe --config configs/n60/n60.yaml 22F195
+    python diag.py probe --config configs/n60/n60_zlg.yaml 22F195
     响应：62F19520533031302E303039
 
 ## unlock — 安全解锁
 
-    python diag.py unlock --config configs/n60/n60.yaml app
+    python diag.py unlock --config configs/n60/n60_zlg.yaml app
 
 等级来自配置 security 节 + 内置 develop（61/62）。
 
@@ -189,7 +190,7 @@ security:
   `testcase/<项目>/<用例>/<时间戳>/`
 - **chat / probe / unlock / dem**：日志生成在 `logs/` 下 →
   `logs/<项目>_<命令名>_<时间戳>/`（项目名取配置的子目录，如
-  `configs/n60/n60.yaml` → n60，configs 根下的配置取文件名）
+  `configs/n60/n60_zlg.yaml` → n60，configs 根下的配置取文件名）
 
 目录内容相同：
 
