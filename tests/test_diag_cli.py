@@ -1,6 +1,6 @@
 import pytest
 
-import diag
+import DiagnosticTester
 from mock_driver import MockCanDriver
 
 CONFIG = """
@@ -63,7 +63,7 @@ class SecEcu:
 def run_cli(tmp_path, monkeypatch):
     """返回 runner(argv, ecu=None)：写配置与用例并执行 main，返回 (code, stdout)。
     argv 中的 "tc" 占位符替换为用例文件路径。"""
-    monkeypatch.setattr(diag, "LOGS_DIR", tmp_path)
+    monkeypatch.setattr(DiagnosticTester, "LOGS_DIR", tmp_path)
 
     def runner(argv, ecu=None, cfg_text=CONFIG, tc_text=TESTCASE,
                cfg_name="cfg.yaml", tc_name="tc.yaml"):
@@ -74,13 +74,13 @@ def run_cli(tmp_path, monkeypatch):
         tc_path.parent.mkdir(parents=True, exist_ok=True)
         tc_path.write_text(tc_text, encoding="utf-8")
         if ecu is not None:
-            monkeypatch.setattr(diag, "make_driver", lambda cfg: ecu)
+            monkeypatch.setattr(DiagnosticTester, "make_driver", lambda cfg: ecu)
         import io
         import contextlib
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             argv = [str(tc_path) if a == "tc" else a for a in argv]
-            code = diag.main([*argv, "--config", str(cfg_path)])
+            code = DiagnosticTester.main([*argv, "--config", str(cfg_path)])
         return code, out.getvalue()
 
     return runner

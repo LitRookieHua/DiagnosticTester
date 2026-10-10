@@ -1,4 +1,4 @@
-# 诊断测试工具（diag）
+# 诊断测试工具（DiagnosticTester）
 
 周立功 / 创芯 USB-CANFD 卡上的 UDS 诊断测试工具。经典 CAN / CAN FD 均支持，
 按 YAML 测试用例收发诊断数据，文本/CSV/BLF 三路落盘，支持 0x27 安全解锁。
@@ -6,11 +6,11 @@
 ## 快速上手
 
     python -m pip install -r requirements.txt
-    python diag.py run testcase/example/example.yaml --config configs/example.yaml
+    python DiagnosticTester.py run testcase/example/example.yaml --config configs/example.yaml
 
 前提：ZLG 卡需 ZLGCAN SDK 按 `vendor/zlgcan/README.md` 组装（创芯卡无需，见下）、CAN 卡已插、
 目标 ECU 已上电；testcase/ 不入仓库，首次使用需自备用例文件。免硬件体验可先跑
-`python diag.py run testcase/example_mock/example_mock.yaml --config configs/example_mock.yaml`。
+`python DiagnosticTester.py run testcase/example_mock/example_mock.yaml --config configs/example_mock.yaml`。
 
 ### 创芯卡（CX-USBCANFD）
 
@@ -43,12 +43,12 @@
 
 | 命令 | 用途 | 示例 |
 | --- | --- | --- |
-| `run` | 跑测试用例 | `python diag.py run testcase/n60/x/x.yaml --config configs/n60/n60_zlg.yaml` |
-| `chat` | 交互模式，逐条发请求 | `python diag.py chat --config configs/n60/n60_zlg.yaml` |
-| `probe` | 单发一条请求 | `python diag.py probe --config configs/n60/n60_zlg.yaml 22F195` |
-| `unlock` | 0x27 安全解锁 | `python diag.py unlock --config configs/n60/n60_zlg.yaml app` |
-| `dem` | 故障检测报告（DTC/event/fimfid） | `python diag.py dem --config configs/rx/rx_zlg.yaml` |
-| `dem-map` | 手动粘贴响应离线解析 DEM map（不连 ECU） | `python diag.py dem-map --config configs/rx/rx_zlg.yaml` |
+| `run` | 跑测试用例 | `python DiagnosticTester.py run testcase/n60/x/x.yaml --config configs/n60/n60_zlg.yaml` |
+| `chat` | 交互模式，逐条发请求 | `python DiagnosticTester.py chat --config configs/n60/n60_zlg.yaml` |
+| `probe` | 单发一条请求 | `python DiagnosticTester.py probe --config configs/n60/n60_zlg.yaml 22F195` |
+| `unlock` | 0x27 安全解锁 | `python DiagnosticTester.py unlock --config configs/n60/n60_zlg.yaml app` |
+| `dem` | 故障检测报告（DTC/event/fimfid） | `python DiagnosticTester.py dem --config configs/rx/rx_zlg.yaml` |
+| `dem-map` | 手动粘贴响应离线解析 DEM map（不连 ECU） | `python DiagnosticTester.py dem-map --config configs/rx/rx_zlg.yaml` |
 
 ## 配置文件（configs/）
 
@@ -115,7 +115,7 @@ security:
 
 ## run — 跑测试用例
 
-    python diag.py run testcase/n60/x/x.yaml --config configs/n60/n60_zlg.yaml
+    python DiagnosticTester.py run testcase/n60/x/x.yaml --config configs/n60/n60_zlg.yaml
 
 输出汇总与退出码：
 
@@ -127,7 +127,7 @@ security:
 
 ## chat — 交互模式
 
-    python diag.py chat --config configs/n60/n60_zlg.yaml
+    python DiagnosticTester.py chat --config configs/n60/n60_zlg.yaml
 
 逐条输入十六进制请求，即时显示响应与耗时：
 
@@ -145,12 +145,12 @@ security:
 
 ## probe — 单发一条
 
-    python diag.py probe --config configs/n60/n60_zlg.yaml 22F195
+    python DiagnosticTester.py probe --config configs/n60/n60_zlg.yaml 22F195
     响应：62F19520533031302E303039
 
 ## unlock — 安全解锁
 
-    python diag.py unlock --config configs/n60/n60_zlg.yaml app
+    python DiagnosticTester.py unlock --config configs/n60/n60_zlg.yaml app
 
 等级来自配置 security 节 + 内置 develop（61/62）。
 
@@ -164,7 +164,7 @@ security:
 
 ## dem-map — 手动粘贴响应离线解析
 
-    python diag.py dem-map --config configs/t1lfl1/t1lfl1_zlg.yaml
+    python DiagnosticTester.py dem-map --config configs/t1lfl1/t1lfl1_zlg.yaml
 
 不连 ECU、不需要 CAN 卡：逐项提示粘贴原始正响应 hex（可含空格），
 用 `--config` 同目录的 dtc_map/event_map/fimfid_map 解码显示。

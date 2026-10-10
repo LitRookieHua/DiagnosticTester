@@ -322,11 +322,11 @@ def test_recv_negative_getreceivenum_keeps_thread_alive(fake_cx):
 # ---------- make_driver 路由 ----------
 
 def test_make_driver_routes_cx(fake_cx):
-    import diag
+    import DiagnosticTester
     from can_driver import CxCanFdDriver
     cfg = {"can": {"device": "CX-USBCANFD", "channel": 1, "fd": True,
                    "baudrate": 500000, "data_baudrate": 2000000}}
-    d = diag.make_driver(cfg)
+    d = DiagnosticTester.make_driver(cfg)
     try:
         assert isinstance(d, CxCanFdDriver)
         # 通道与波特率已透传到 SetAbitBaud
@@ -337,9 +337,9 @@ def test_make_driver_routes_cx(fake_cx):
 
 
 def test_make_driver_unknown_device_raises():
-    import diag
+    import DiagnosticTester
     cfg = {"can": {"device": "nope", "channel": 0, "fd": True,
                    "baudrate": 500000}}
     with pytest.raises(RuntimeError,
                        match=r"不支持的设备 nope，可选：mock、.*CX-USBCANFD"):
-        diag.make_driver(cfg)
+        DiagnosticTester.make_driver(cfg)
