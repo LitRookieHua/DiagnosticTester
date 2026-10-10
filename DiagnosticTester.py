@@ -1,12 +1,12 @@
 """诊断测试工具 CLI。
 
 用法：
-  python diag.py run <testcase.yaml> --config <config.yaml>   跑测试用例
-  python diag.py chat --config <config.yaml>                  交互模式
-  python diag.py probe --config <config.yaml> 22F195          单发一条请求
-  python diag.py unlock --config <config.yaml> app             0x27 安全解锁
-  python diag.py dem --config <config.yaml>                    故障检测报告（DTC/event/fimfid）
-  python diag.py dem-map --config <config.yaml>                手动粘贴响应离线解析 DEM map
+  python DiagnosticTester.py run <testcase.yaml> --config <config.yaml>   跑测试用例
+  python DiagnosticTester.py chat --config <config.yaml>                  交互模式
+  python DiagnosticTester.py probe --config <config.yaml> 22F195          单发一条请求
+  python DiagnosticTester.py unlock --config <config.yaml> app             0x27 安全解锁
+  python DiagnosticTester.py dem --config <config.yaml>                    故障检测报告（DTC/event/fimfid）
+  python DiagnosticTester.py dem-map --config <config.yaml>                手动粘贴响应离线解析 DEM map
 """
 from __future__ import annotations
 
